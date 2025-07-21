@@ -2,11 +2,14 @@ import argparse
 import json
 import logging
 import os
+import ase
+
 from modules.configuration import Configuration
-from modules.utils import setup_logging
+from modules.utils import setup_logging, smiles_to_ase_atoms
 from modules.fingerprinting import get_or_create_fingerprints
 from modules.selection import generate_relevant_dataset
 from modules.training import train_mtp
+from modules.visualization import generate_umap_plot # Импортируем новую функцию
 # from modules.validation import run_md_validation # Раскомментировать, когда будет реализовано
 
 def main(config_path: str):
@@ -42,7 +45,8 @@ def main(config_path: str):
     
     # --- ЭТАП 2: Генерация релевантного датасета ---
     logging.info("Генерация релевантного датасета...")
-    relevant_configs = generate_relevant_dataset(
+    # ИЗМЕНЕНО: получаем два значения
+    relevant_configs, query_fingerprints = generate_relevant_dataset(
         smiles=config['general']['smiles_polymer'],
         all_configs=all_configurations,
         ref_fingerprints=ref_fingerprints,
@@ -55,7 +59,7 @@ def main(config_path: str):
     
     train_dataset_path = os.path.join(output_dir, "train.cfg")
     Configuration.save_to_file(relevant_configs, train_dataset_path)
-    logging.info(f"Релевантный датасет сохранен в: {train_dataset_path}")
+    logging.info(f"Релевантный датасет (.cfg) сохранен в: {train_dataset_path}")
 
     # --- ЭТАП 3: Обучение потенциала MTP ---
     if config.get('mtp_training', {}).get('enabled', False):
@@ -63,8 +67,44 @@ def main(config_path: str):
         train_mtp(config, train_dataset_path)
     else:
         logging.info("Обучение MTP пропущено (отключено в конфигурации).")
+        
+     # --- НОВЫЙ ЭТАП 4: Постобработка и визуализация ---
+    logging.info("Запуск постобработки...")
+    post_cfg = config.get('postprocessing', {})
 
-    # --- ЭТАП 4: Валидация через МД (будущая работа) ---
+    # 1. Сохранение .xyz для query-структур
+    if post_cfg.get('save_smiles_xyz', False):
+        try:
+            query_atoms = smiles_to_ase_atoms(config['general']['smiles_polymer'].replace('[*]', ''), num_conformers=3)
+            xyz_path = os.path.join(output_dir, post_cfg['smiles_xyz_filename'])
+            ase.io.write(xyz_path, query_atoms, format='extxyz', append=True)
+            logging.info(f"Сгенерированные по SMILES структуры сохранены в: {xyz_path}")
+        except Exception as e:
+            logging.error(f"Не удалось сохранить query-структуры в .xyz: {e}")
+            
+    # 2. Сохранение .xyz для релевантного датасета
+    if post_cfg.get('save_relevant_xyz', False):
+        try:
+            ase_relevant_configs = [cfg.to_ase(type_map) for cfg in relevant_configs]
+            xyz_path = os.path.join(output_dir, post_cfg['relevant_xyz_filename'])
+            ase.io.write(xyz_path, ase_relevant_configs, format='extxyz', append=True)
+            logging.info(f"Релевантный датасет (.xyz) сохранен в: {xyz_path}")
+        except Exception as e:
+            logging.error(f"Не удалось сохранить релевантный датасет в .xyz: {e}")
+
+    # 3. Генерация UMAP графика
+    if post_cfg.get('generate_umap_plot', False):
+        try:
+            plot_path = os.path.join(output_dir, post_cfg['umap_plot_filename'])
+            generate_umap_plot(
+                reference_fps=ref_fingerprints,
+                query_fps=query_fingerprints,
+                output_path=plot_path
+            )
+        except Exception as e:
+            logging.error(f"Не удалось сгенерировать UMAP-график: {e}")
+
+    # --- ЭТАП 5: Валидация через МД (будущая работа) ---
     if config.get('md_validation', {}).get('enabled', False):
         logging.info("Запуск МД валидации (функционал в разработке)...")
         # run_md_validation(config, trained_potential_path)

@@ -15,17 +15,19 @@ def generate_relevant_dataset(
     ref_fingerprints: np.ndarray,
     selection_params: Dict,
     fp_params: Dict
-) -> List: # List[Configuration]
+) -> (List, np.ndarray): # Возвращаем и конфиги, и фингерпринты
     """
     Основная функция, выполняющая весь пайплайн отбора данных.
     """
-    # --- Шаг 1: Получение фингерпринтов для query-структуры из SMILES ---
+    # ... (Шаг 1 и 2 без изменений) ...
+    # --- Шаг 1 ---
     logging.info(f"Генерация query-структуры для SMILES: {smiles}")
-    query_atoms = smiles_to_ase_atoms(smiles.replace('[*]', ''), num_conformers=1)[0]
+    query_atoms_list = smiles_to_ase_atoms(smiles.replace('[*]', ''), num_conformers=3) # Генерируем несколько для стабильности
     
     logging.info("Расчет фингерпринтов для query-структуры...")
     calc = MACECalculator(model_paths=fp_params['mace_model_path'], device=fp_params['device'])
-    query_fp_raw = calc.get_descriptors(query_atoms)
+    query_fp_raw_list = [calc.get_descriptors(atoms) for atoms in query_atoms_list]
+    query_fp_raw = np.vstack(query_fp_raw_list)
 
     # --- Шаг 2: Подготовка и нормализация данных ---
     logging.info("Подготовка и нормализация данных...")
@@ -62,7 +64,7 @@ def generate_relevant_dataset(
 
     fp_centroids = np.array(fp_centroids_list)
     
-    # --- Шаг 4: Понижение размерности и финальная кластеризация ---
+    # --- Шаг 4 (UMAP и финальная кластеризация) ---
     logging.info("Этап 2: Понижение размерности с помощью UMAP...")
     reducer = umap.UMAP(**selection_params['umap_params']).fit(fp_centroids)
     embedding_cl = reducer.transform(fp_centroids)
@@ -70,6 +72,12 @@ def generate_relevant_dataset(
     logging.info("Этап 3: Финальная кластеризация центроидов...")
     final_clusterizer = AgglomerativeClustering(**selection_params['clustering_params']).fit(embedding_cl)
     labels = final_clusterizer.labels_
+    
+    # +++ НОВОЕ: ЛОГИРОВАНИЕ СТАТИСТИКИ ПО КЛАСТЕРАМ +++
+    unique_labels, counts = np.unique(labels, return_counts=True)
+    logging.info(f"Найдено {len(unique_labels)} уникальных кластеров в референсном датасете.")
+    for label, count in zip(unique_labels, counts):
+        logging.info(f"  - Кластер {label}: {count} центроидов конфигураций")
     
     # --- Шаг 5: Поиск релевантных кластеров ---
     logging.info("Этап 4: Определение релевантных кластеров...")
@@ -81,7 +89,7 @@ def generate_relevant_dataset(
     
     query_embedding = reducer.transform(query_centroids_scaled)
     target_labels = np.unique(clf.predict(query_embedding))
-    logging.info(f"Целевые кластеры определены: {target_labels}")
+    logging.info(f"Целевые кластеры, релевантные для SMILES: {target_labels.tolist()}")
     
     # --- Шаг 6: Отбор конфигураций ---
     logging.info("Этап 5: Отбор релевантных конфигураций...")
@@ -112,7 +120,7 @@ def generate_relevant_dataset(
         config_id = centroid_to_config_map[centroid_idx]
         relevant_config_ids.add(config_id)
 
-    logging.info(f"Найдено {len(relevant_config_ids)} релевантных конфигураций.")
+    logging.info(f"Найдено {len(relevant_config_ids)} уникальных релевантных конфигураций до финальной выборки.")
     
     # --- Шаг 7: Финальная выборка ---
     num_to_select = selection_params['num_output_configs']
@@ -126,4 +134,4 @@ def generate_relevant_dataset(
     logging.info(f"Отобрано {len(final_indices)} конфигураций для итогового датасета.")
     
     final_configurations = [all_configs[i] for i in final_indices]
-    return final_configurations
+    return final_configurations, query_fp_raw

@@ -36,5 +36,13 @@
     "enabled": false,
     "temperature_K": 300,
     "md_steps": 10000
+  },
+  "postprocessing": {
+    "save_smiles_xyz": true,
+    "smiles_xyz_filename": "query_structures.xyz",
+    "save_relevant_xyz": true,
+    "relevant_xyz_filename": "relevant_dataset.xyz",
+    "generate_umap_plot": true,
+    "umap_plot_filename": "umap_visualization.png"
   }
 }

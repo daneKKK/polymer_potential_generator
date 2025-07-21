@@ -1,0 +1,40 @@
+{
+  "general": {
+    "smiles_polymer": "[*]CC([*])c1ccccc1", // Полимерный SMILES (со звездочками для точек соединения)
+    "output_dir": "./poly_styrene_run_01", // Куда сохранять результаты
+    "device": "cuda" // "cuda" или "cpu"
+  },
+  "fingerprinting": {
+    "large_dataset_path": "/path/to/your/polymers.cfg",
+    "fingerprints_cache_path": "/path/to/your/polymers_fps.npy", // Опционально: путь для сохранения/загрузки фингерпринтов
+    "mace_model_path": "2023-12-03-mace-mp.model",
+    "type_map_cfg_to_symbol": { 
+      "0": "C", "1": "H", "2": "O" // Как в вашем ноутбуке
+    }
+  },
+  "selection": {
+    "num_output_configs": 500,
+    "intra_config_clusters": 2, // n_clusters_per_config из ноутбука
+    "umap_params": {
+      "n_neighbors": 40,
+      "min_dist": 0.1,
+      "n_components": 256 // Размерность для кластеризации, как в ноутбуке
+    },
+    "clustering_params": {
+      "distance_threshold": 20.0, // Для AgglomerativeClustering, как в ноутбуке
+      "n_clusters": null
+    }
+  },
+  "mtp_training": {
+    "enabled": true,
+    "mtp_executable_path": "/path/to/mlp-24.1/bin/mtp",
+    "initial_potential": "pot.mtp", // Название начального потенциала
+    "output_potential_name": "trained.mtp",
+    "training_command": "train"
+  },
+  "md_validation": {
+    "enabled": false,
+    "temperature_K": 300,
+    "md_steps": 10000
+  }
+}

@@ -1,0 +1,7 @@
+numpy
+ase
+mace-torch
+rdkit
+scikit-learn
+umap-learn
+tqdm

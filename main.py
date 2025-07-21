@@ -58,7 +58,7 @@ def main(config_path: str):
     # --- ЭТАП 2: Генерация релевантного датасета ---
     logging.info("Генерация релевантного датасета...")
     # ИЗМЕНЕНО: получаем два значения
-    relevant_configs, query_fingerprints, query_atoms = generate_relevant_dataset(
+    relevant_configs, query_fingerprints, query_atoms, fp_centroids = generate_relevant_dataset(
         smiles=config['general']['smiles_polymer'],
         all_configs=all_configurations,
         ref_fingerprints=ref_fingerprints,
@@ -98,7 +98,7 @@ def main(config_path: str):
         try:
             ase_relevant_configs = [cfg.to_ase(type_map) for cfg in relevant_configs]
             xyz_path = os.path.join(output_dir, post_cfg['relevant_xyz_filename'])
-            ase.io.write(xyz_path, ase_relevant_configs, format='extxyz', append=True)
+            ase.io.write(xyz_path, ase_relevant_configs, format='extxyz', append=False)
             logging.info(f"Релевантный датасет (.xyz) сохранен в: {xyz_path}")
         except Exception as e:
             logging.error(f"Не удалось сохранить релевантный датасет в .xyz: {e}")
@@ -108,7 +108,7 @@ def main(config_path: str):
         try:
             plot_path = os.path.join(output_dir, post_cfg['umap_plot_filename'])
             generate_umap_plot(
-                reference_fps=ref_fingerprints,
+                reference_fps=fp_centroids,
                 query_fps=query_fingerprints,
                 output_path=plot_path,
                 umap_plot_params=post_cfg['umap_plot_params']

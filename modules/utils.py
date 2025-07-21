@@ -20,7 +20,7 @@ def setup_logging(log_file: str):
 def smiles_to_ase_atoms(
     polymer_smiles: str,
     generate_rings: bool = True,
-    max_ring_size: int = 3
+    max_ring_size: int = 4
 ) -> List[Atoms]:
     """
     Генерирует 3D структуры из полимерного SMILES, включая мономер
@@ -63,15 +63,19 @@ def smiles_to_ase_atoms(
     # 2. Обработка колец
     # Создаем "тело" мономера для вставки в цепочку.
     # Это SMILES, где первая [*] заменена на пустую строку.
-    monomer_body = polymer_smiles.replace('[*]', '', 1)
+    #monomer_head = ''.join(polymer_smiles.rsplit('[*]',1))
+    monomer_head = polymer_smiles[::-1].replace(']*[','',1)[::-1]
+    monomer_tail = polymer_smiles.replace('[*]', '', 1)
+    monomer_body = polymer_smiles.replace('[*]', '')
 
     for n in range(2, max_ring_size + 1):
         # Шаг 2.1: Собираем SMILES для ЛИНЕЙНОГО олигомера со [*] на концах
-        chain_smiles = polymer_smiles
-        for _ in range(n - 1):
-            # Последовательно заменяем первую доступную точку сшивки на тело следующего мономера
-            chain_smiles = chain_smiles.replace('[*]', monomer_body, 1)
-        chain_smiles = chain_smiles.replace('[*]', '').replace('()', '')
+        #chain_smiles = polymer_smiles
+        #for _ in range(n - 1):
+        #    # Последовательно заменяем первую доступную точку сшивки на тело следующего мономера
+        #    chain_smiles = chain_smiles.replace('[*]', monomer_body, 1)
+        #chain_smiles = chain_smiles.replace('[*]', '').replace('()', '')
+        chain_smiles = monomer_head + monomer_body*(n-2) + monomer_tail
 
         logging.info(f"Генерация кольца (n={n}). Промежуточная цепочка: {chain_smiles}")
         
@@ -83,24 +87,25 @@ def smiles_to_ase_atoms(
                 continue
 
             # Шаг 2.3: Находим атомы-заглушки для сшивки
-            #wildcard_atoms = [atom for atom in mol_chain.GetAtoms() if atom.GetAtomicNum() == 0]
-            #if len(wildcard_atoms) != 2:
-            #    logging.warning(f"В промежуточной цепочке найдено не 2, а {len(wildcard_atoms)} атомов-заглушек. Пропуск.")
-            #    continue
+            wildcard_atoms = [atom for atom in mol_chain.GetAtoms() if atom.GetAtomicNum() == 0]
+            if len(wildcard_atoms) != 2:
+                logging.warning(f"В промежуточной цепочке найдено не 2, а {len(wildcard_atoms)} атомов-заглушек. Пропуск.")
+                continue
             
             # Шаг 2.4: Создаем редактируемую молекулу и сшиваем кольцо
             rw_mol = Chem.RWMol(mol_chain)
-            #idx1, idx2 = wildcard_atoms[0].GetIdx(), wildcard_atoms[1].GetIdx()
+            idx1, idx2 = wildcard_atoms[0].GetIdx(), wildcard_atoms[1].GetIdx()
             
             # Добавляем связь между соседями "звездочек"
             # Сосед у такого атома всегда один
-            #neighbor1 = wildcard_atoms[0].GetNeighbors()[0].GetIdx()
-            #neighbor2 = wildcard_atoms[1].GetNeighbors()[0].GetIdx()
-            #rw_mol.AddBond(neighbor1, neighbor2, Chem.BondType.SINGLE)
+            neighbor1 = wildcard_atoms[0].GetNeighbors()[0].GetIdx()
+            #neighbor1 = 
+            neighbor2 = wildcard_atoms[1].GetNeighbors()[0].GetIdx()
+            rw_mol.AddBond(neighbor1, neighbor2, Chem.BondType.SINGLE)
 
             # Шаг 2.5: Удаляем сами атомы-заглушки (в обратном порядке, чтобы не сбить индексы)
-            #rw_mol.RemoveAtom(max(idx1, idx2))
-            #rw_mol.RemoveAtom(min(idx1, idx2))
+            rw_mol.RemoveAtom(max(idx1, idx2))
+            rw_mol.RemoveAtom(min(idx1, idx2))
             
             # Получаем финальную, чистую молекулу кольца
             mol_ring = rw_mol.GetMol()

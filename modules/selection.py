@@ -73,7 +73,6 @@ def generate_relevant_dataset(
     final_clusterizer = AgglomerativeClustering(**selection_params['clustering_params']).fit(embedding_cl)
     labels = final_clusterizer.labels_
     
-    # +++ НОВОЕ: ЛОГИРОВАНИЕ СТАТИСТИКИ ПО КЛАСТЕРАМ +++
     unique_labels, counts = np.unique(labels, return_counts=True)
     logging.info(f"Найдено {len(unique_labels)} уникальных кластеров в референсном датасете.")
     for label, count in zip(unique_labels, counts):
@@ -89,7 +88,42 @@ def generate_relevant_dataset(
     
     query_embedding = reducer.transform(query_centroids_scaled)
     target_labels = np.unique(clf.predict(query_embedding))
-    logging.info(f"Целевые кластеры, релевантные для SMILES: {target_labels.tolist()}")
+   
+    # Сначала найдем для каждого query-центроида его ближайший референсный кластер и расстояние до его центра
+    predicted_labels_per_query = clf.predict(query_embedding)
+    cluster_distances = {} # Словарь для хранения минимального расстояния до каждого целевого кластера
+    
+    for i, query_point_emb in enumerate(query_embedding):
+        label = predicted_labels_per_query[i]
+        ref_centroid_emb = clf.centroids_[label]
+        distance = np.linalg.norm(query_point_emb - ref_centroid_emb)
+        
+        # Сохраняем минимальное расстояние для каждого кластера
+        if label not in cluster_distances or distance < cluster_distances[label]:
+            cluster_distances[label] = distance
+
+    log_messages = []
+    for label in target_labels:
+        # Находим все точки (центроиды конфигураций) в этом кластере
+        points_in_cluster = fp_centroids[labels == label]
+        
+        # Считаем дисперсию (размер) кластера. Используем не embedding, а исходные fp_centroids
+        if points_in_cluster.shape[0] > 1:
+            # Средняя дисперсия по всем измерениям
+            dispersion = np.mean(np.var(points_in_cluster, axis=0))
+            # "Радиус" или "размер" кластера
+            radius = np.sqrt(dispersion)
+        else:
+            radius = 1e-6 # Избегаем деления на ноль для кластеров из одной точки
+        
+        min_dist_to_cluster = cluster_distances.get(label, 0.0)
+        relevance_metric = min_dist_to_cluster / radius
+
+        log_messages.append(
+            f"  - Кластер {label}: {counts[list(unique_labels).index(label)]} конфиг., метрика близости = {relevance_metric:.3f}"
+        )
+    
+    logging.info("Целевые кластеры, релевантные для SMILES:\n" + "\n".join(log_messages))
     
     # --- Шаг 6: Отбор конфигураций ---
     logging.info("Этап 5: Отбор релевантных конфигураций...")
@@ -134,4 +168,4 @@ def generate_relevant_dataset(
     logging.info(f"Отобрано {len(final_indices)} конфигураций для итогового датасета.")
     
     final_configurations = [all_configs[i] for i in final_indices]
-    return final_configurations, query_fp_raw, query_atoms_list
+    return final_configurations, query_fp_raw, query_atoms_list, fp_centroids

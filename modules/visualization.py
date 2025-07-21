@@ -26,11 +26,11 @@ def generate_umap_plot(
     logging.info("Создание 2D UMAP-визуализации...")
     
     # 1. Подготовка данных
-    ref_fp_only = reference_fps[:, :-1]
-    ref_config_ids = reference_fps[:, -1] # для раскраски
+    ref_fp_only = reference_fps
+    #ref_config_ids = reference_fps[:, -1] # для раскраски
 
     # Объединяем все фингерпринты в один массив для UMAP
-    all_fps = np.vstack([ref_fp_only, query_fps])
+    all_fps = ref_fp_only
     
     # 2. Нормализация
     logging.info("Нормализация всех фингерпринтов для UMAP...")
@@ -44,8 +44,8 @@ def generate_umap_plot(
 
     # Разделяем обратно на референсные и query-точки
     n_ref_atoms = ref_fp_only.shape[0]
-    ref_embedding = embedding[:n_ref_atoms]
-    query_embedding = embedding[n_ref_atoms:]
+    ref_embedding = embedding
+    query_embedding = reducer.transform(query_fps)
     
     # 4. Отрисовка
     logging.info("Отрисовка графика...")
@@ -56,7 +56,7 @@ def generate_umap_plot(
     plt.scatter(
         ref_embedding[:, 0],
         ref_embedding[:, 1],
-        c=ref_config_ids,
+        c='grey',
         s=5,           # Маленький размер для фона
         alpha=0.3,     # Прозрачность
         cmap='viridis',
@@ -71,6 +71,7 @@ def generate_umap_plot(
         s=100,         # Большой размер для выделения
         edgecolors='black',
         linewidths=1.5,
+        alpha=0.5,
         label=f'Атомы из SMILES'
     )
     

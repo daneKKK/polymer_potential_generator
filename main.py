@@ -43,10 +43,22 @@ def main(config_path: str):
         device=config['general']['device']
     )
     
+    logging.info(f"Генерация query-структуры для SMILES: {config['general']['smiles_polymer']}")
+    query_atoms = smiles_to_ase_atoms(config['general']['smiles_polymer']) # Генерируем несколько для стабильности
+    
+    post_cfg = config.get('postprocessing', {})
+    if post_cfg.get('save_smiles_xyz', False):
+        try:
+            xyz_path = os.path.join(output_dir, post_cfg['smiles_xyz_filename'])
+            ase.io.write(xyz_path, query_atoms, format='extxyz', append=False)
+            logging.info(f"Сгенерированные по SMILES структуры сохранены в: {xyz_path}")
+        except Exception as e:
+            logging.error(f"Не удалось сохранить query-структуры в .xyz: {e}")
+    
     # --- ЭТАП 2: Генерация релевантного датасета ---
     logging.info("Генерация релевантного датасета...")
     # ИЗМЕНЕНО: получаем два значения
-    relevant_configs, query_fingerprints = generate_relevant_dataset(
+    relevant_configs, query_fingerprints, query_atoms = generate_relevant_dataset(
         smiles=config['general']['smiles_polymer'],
         all_configs=all_configurations,
         ref_fingerprints=ref_fingerprints,
@@ -54,7 +66,8 @@ def main(config_path: str):
         fp_params={
             "mace_model_path": config['fingerprinting']['mace_model_path'],
             "device": config['general']['device']
-        }
+        },
+        query_atoms_list=query_atoms
     )
     
     train_dataset_path = os.path.join(output_dir, "train.cfg")
@@ -70,12 +83,10 @@ def main(config_path: str):
         
      # --- НОВЫЙ ЭТАП 4: Постобработка и визуализация ---
     logging.info("Запуск постобработки...")
-    post_cfg = config.get('postprocessing', {})
 
     # 1. Сохранение .xyz для query-структур
     if post_cfg.get('save_smiles_xyz', False):
         try:
-            query_atoms = smiles_to_ase_atoms(config['general']['smiles_polymer'].replace('[*]', ''), num_conformers=3)
             xyz_path = os.path.join(output_dir, post_cfg['smiles_xyz_filename'])
             ase.io.write(xyz_path, query_atoms, format='extxyz', append=True)
             logging.info(f"Сгенерированные по SMILES структуры сохранены в: {xyz_path}")
@@ -99,7 +110,8 @@ def main(config_path: str):
             generate_umap_plot(
                 reference_fps=ref_fingerprints,
                 query_fps=query_fingerprints,
-                output_path=plot_path
+                output_path=plot_path,
+                umap_plot_params=post_cfg['umap_plot_params']
             )
         except Exception as e:
             logging.error(f"Не удалось сгенерировать UMAP-график: {e}")

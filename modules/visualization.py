@@ -39,7 +39,7 @@ def generate_umap_plot(
 
     # 3. UMAP
     logging.info("Запуск UMAP для понижения размерности до 2D...")
-    reducer = umap.UMAP(n_components=2, **umap_plot_params, random_state=42)
+    reducer = umap.UMAP(n_components=2, **umap_plot_params)
     embedding = reducer.fit_transform(all_fps_scaled)
 
     # Разделяем обратно на референсные и query-точки

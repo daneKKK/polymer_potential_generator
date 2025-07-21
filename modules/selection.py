@@ -14,15 +14,15 @@ def generate_relevant_dataset(
     all_configs: List, # List[Configuration]
     ref_fingerprints: np.ndarray,
     selection_params: Dict,
-    fp_params: Dict
+    fp_params: Dict,
+    query_atoms_list: List, #List[ase.Atoms]
 ) -> (List, np.ndarray): # Возвращаем и конфиги, и фингерпринты
     """
     Основная функция, выполняющая весь пайплайн отбора данных.
     """
     # ... (Шаг 1 и 2 без изменений) ...
     # --- Шаг 1 ---
-    logging.info(f"Генерация query-структуры для SMILES: {smiles}")
-    query_atoms_list = smiles_to_ase_atoms(smiles.replace('[*]', ''), num_conformers=3) # Генерируем несколько для стабильности
+    
     
     logging.info("Расчет фингерпринтов для query-структуры...")
     calc = MACECalculator(model_paths=fp_params['mace_model_path'], device=fp_params['device'])
@@ -134,4 +134,4 @@ def generate_relevant_dataset(
     logging.info(f"Отобрано {len(final_indices)} конфигураций для итогового датасета.")
     
     final_configurations = [all_configs[i] for i in final_indices]
-    return final_configurations, query_fp_raw
+    return final_configurations, query_fp_raw, query_atoms_list

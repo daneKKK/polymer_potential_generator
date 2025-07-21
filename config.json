@@ -43,6 +43,10 @@
     "save_relevant_xyz": true,
     "relevant_xyz_filename": "relevant_dataset.xyz",
     "generate_umap_plot": true,
-    "umap_plot_filename": "umap_visualization.png"
+    "umap_plot_filename": "umap_visualization.png",
+	"umap_plot_params": {
+      "n_neighbors": 40,
+      "min_dist": 0.1
+    }
   }
 }

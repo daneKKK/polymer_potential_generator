@@ -5,6 +5,7 @@ from typing import List, Dict, Optional, Any, Tuple
 from ase.calculators.singlepoint import SinglePointCalculator
 import re
 import os
+import contextlib
 
 class Configuration:
     """
@@ -111,16 +112,26 @@ class Configuration:
                 i += 1 # Если не начало блока, просто идем дальше
                 
         return configurations
+        
     @staticmethod
-    def save_to_file(configurations: List['Configuration'], filepath: str):
+    def save_to_file(configurations: List['Configuration'], filepath_or_buffer):
         """
-        Сохраняет список объектов Configuration в файл формата .cfg.
+        Сохраняет список объектов Configuration в файл или открытый файловый буфер.
 
         Args:
             configurations (List[Configuration]): Список объектов для сохранения.
-            filepath (str): Путь к файлу для сохранения.
+            filepath_or_buffer (str or file-like object): Путь к файлу или
+                                                            уже открытый буфер для записи.
         """
-        with open(filepath, 'w') as f:
+        # Определяем, какой контекстный менеджер использовать.
+        # Если передан путь (str), используем open().
+        # Если передан буфер, используем nullcontext, который ничего не делает
+        # при входе/выходе из блока 'with' и просто возвращает сам буфер.
+        manager = open(filepath_or_buffer, 'w') if isinstance(filepath_or_buffer, str) else contextlib.nullcontext(filepath_or_buffer)
+
+        with manager as f:
+            # --- ЕДИНЫЙ БЛОК ЛОГИКИ ЗАПИСИ ---
+            # Этот код больше не дублируется.
             for i, config in enumerate(configurations):
                 f.write("BEGIN_CFG\n")
                 if config.size is not None:
@@ -144,13 +155,13 @@ class Configuration:
                     f.write(" ".join(str(config.plus_stress[h]) for h in headers) + "\n")
                 if config.features:
                     for key, value in config.features.items():
-                        # Для многострочных фич
                         for line in value.strip().split('\n'):
                             f.write(f"Feature {key} {line}\n")
                 f.write("END_CFG\n")
+                # Добавляем пустую строку между блоками, только если это не последний блок
                 if i < len(configurations) - 1:
-                    f.write("\n") # Добавляем пустую строку между блоками
-        print(f"Данные успешно сохранены в файл: {filepath}")
+                    f.write("\n")
+
     def to_ase(self, type_map: Dict[int, str]) -> ase.Atoms:
         """
         Преобразует объект Configuration в объект ase.Atoms.
@@ -291,3 +302,87 @@ class Configuration:
             config.features[key] = str(value)
             
         return config
+        
+    @staticmethod
+    def get_config_count(filepath: str) -> int:
+        """
+        Быстро подсчитывает количество конфигураций в файле .cfg, не парся его.
+        """
+        try:
+            with open(filepath, 'r') as f:
+                return sum(1 for line in f if "BEGIN_CFG" in line)
+        except FileNotFoundError:
+            return 0
+            
+    @staticmethod
+    def from_file_by_indices(filepath: str, indices_to_load: List[int]) -> List['Configuration']:
+        """
+        Эффективно читает только указанные по индексам конфигурации из файла .cfg.
+        Проходит по файлу один раз.
+        """
+        if not indices_to_load:
+            return []
+            
+        target_indices = set(indices_to_load)
+        found_configs = {}
+        
+        try:
+            with open(filepath, 'r') as f:
+                lines = f.readlines()
+        except FileNotFoundError:
+            logging.error(f"Файл не найден при чтении по индексам: {filepath}")
+            return []
+
+        config_counter = -1
+        i = 0
+        while i < len(lines):
+            if "BEGIN_CFG" in lines[i]:
+                config_counter += 1
+                if config_counter in target_indices:
+                    # Нашли нужный блок, начинаем парсинг
+                    config = Configuration()
+                    config.features['name'] = filepath
+                    i += 1
+                    
+                    # ... (здесь копипаста логики парсинга из from_file) ...
+                    while i < len(lines) and "END_CFG" not in lines[i]:
+                        line = lines[i].strip()
+                        if line.startswith("Size"):
+                            i += 1
+                            config.size = int(lines[i].strip())
+                        elif line.startswith("Supercell"):
+                            config.supercell = [[float(x) for x in re.split(r'\s+', lines[j].strip())] for j in range(i + 1, i + 4)]
+                            i += 3
+                        elif line.startswith("AtomData:"):
+                            headers = line.split()[1:]
+                            if config.size is None: raise ValueError("Size должен идти перед AtomData")
+                            for j in range(i + 1, i + 1 + config.size):
+                                values = re.split(r'\s+', lines[j].strip())
+                                atom_dict = {h: (int(v) if h in ['id', 'type'] else float(v)) for h, v in zip(headers, values)}
+                                config.atom_data.append(atom_dict)
+                            i += config.size
+                        elif line.startswith("Energy"):
+                            i += 1
+                            config.energy = float(lines[i].strip())
+                        elif line.startswith("PlusStress:"):
+                            headers = line.split()[1:]
+                            i += 1
+                            values = [float(x) for x in re.split(r'\s+', lines[i].strip())]
+                            config.plus_stress = dict(zip(headers, values))
+                        elif line.startswith("Feature"):
+                            parts = line.split(maxsplit=2)
+                            key, value = parts[1], parts[2]
+                            config.features[key] = config.features.get(key, "") + "\n" + value if key in config.features else value
+                        i += 1
+                    
+                    found_configs[config_counter] = config
+                    if len(found_configs) == len(target_indices):
+                        break # Нашли все, что искали
+                else:
+                    # Пропускаем ненужный блок
+                    while i < len(lines) and "END_CFG" not in lines[i]:
+                        i += 1
+            i += 1
+            
+        # Возвращаем в том порядке, в котором запрашивали
+        return [found_configs[idx] for idx in indices_to_load if idx in found_configs]

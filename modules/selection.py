@@ -11,49 +11,56 @@ from .utils import smiles_to_ase_atoms
 
 def generate_relevant_dataset(
     smiles: str,
-    all_configs: List, # List[Configuration]
+    source_datasets_info: List[Dict], # Новая структура с информацией о датасетах
+    thinned_configs_metadata: List[Dict],
     ref_fingerprints: np.ndarray,
     selection_params: Dict,
     fp_params: Dict,
-    query_atoms_list: List, #List[ase.Atoms]
-) -> (List, np.ndarray): # Возвращаем и конфиги, и фингерпринты
+) -> (List[Dict], np.ndarray, List): # Возвращаем список словарей-идентификаторов
     """
     Основная функция, выполняющая весь пайплайн отбора данных.
     """
-    # ... (Шаг 1 и 2 без изменений) ...
-    # --- Шаг 1 ---
-    
-    
-    logging.info("Расчет фингерпринтов для query-структуры...")
-    calc = MACECalculator(model_paths=fp_params['mace_model_path'], device=fp_params['device'])
-    query_fp_raw_list = [calc.get_descriptors(atoms) for atoms in query_atoms_list]
-    query_fp_raw = np.vstack(query_fp_raw_list)
+    # --- Шаг 1: Получение фингерпринтов для query-структуры из SMILES ---
+    logging.info(f"Генерация query-структур (мономер и кольца) для SMILES: {smiles}")
+    query_atoms_list = smiles_to_ase_atoms(smiles)
+    if not query_atoms_list:
+        raise RuntimeError("Не удалось сгенерировать ни одной query-структуры из SMILES.")
 
+    logging.info("Расчет фингерпринтов для query-структур...")
+    calc = MACECalculator(model_paths=fp_params['mace_model_path'], device=fp_params['device'])
+    
+    query_fp_raw_list = []
+    for atoms in query_atoms_list:
+        logging.info(f"  -> Обработка структуры '{atoms.info.get('name', 'N/A')}' с {len(atoms)} атомами.")
+        query_fp_raw_list.append(calc.get_descriptors(atoms))
+    
+    query_fp_raw = np.vstack(query_fp_raw_list)
+    
     # --- Шаг 2: Подготовка и нормализация данных ---
-    logging.info("Подготовка и нормализация данных...")
+    # ... (эта часть остается почти такой же) ...
     ref_fp_only = ref_fingerprints[:, :-1]
-    ref_config_indices = ref_fingerprints[:, -1].astype(int)
+    # Теперь этот индекс - это индекс в прореженной выборке
+    ref_thinned_config_indices = ref_fingerprints[:, -1].astype(int)
 
     scaler = StandardScaler().fit(ref_fp_only)
     ref_fp_scaled = scaler.transform(ref_fp_only)
     query_fp_scaled = scaler.transform(query_fp_raw)
     
-    # --- Шаг 3: Внутриконфигурационная кластеризация (как в ноутбуке) ---
+    # --- Шаг 3: Внутриконфигурационная кластеризация ---
     logging.info("Этап 1: Внутриконфигурационная кластеризация...")
-    n_configs = len(all_configs)
+    n_thinned_configs = len(thinned_configs_metadata)
     n_clusters_per_config = selection_params['intra_config_clusters']
     fp_centroids_list = []
-    
-    for i in tqdm(range(n_configs), desc="Кластеризация конфигураций"):
-        mask = (ref_config_indices == i)
+    centroid_to_thinned_config_map = [] # Карта: индекс центроида -> индекс в thinned_configs_metadata
+
+    for i in tqdm(range(n_thinned_configs), desc="Кластеризация конфигураций"):
+        mask = (ref_thinned_config_indices == i)
         if not np.any(mask): continue
         
+        # ... (логика кластеризации одной конфигурации остается той же) ...
         config_fps_scaled = ref_fp_scaled[mask]
-        
-        # Убедимся, что атомов достаточно для кластеризации
         n_atoms = config_fps_scaled.shape[0]
         n_c = min(n_atoms, n_clusters_per_config)
-        
         if n_c < 1: continue
 
         clusterizer = AgglomerativeClustering(n_clusters=n_c).fit(config_fps_scaled)
@@ -61,6 +68,8 @@ def generate_relevant_dataset(
         for label in range(n_c):
             centroid = np.mean(config_fps_scaled[clusterizer.labels_ == label], axis=0)
             fp_centroids_list.append(centroid)
+            # Запоминаем, что этот центроид относится к i-й конфигурации в прореженной выборке
+            centroid_to_thinned_config_map.append(i)
 
     fp_centroids = np.array(fp_centroids_list)
     
@@ -127,45 +136,62 @@ def generate_relevant_dataset(
     
     # --- Шаг 6: Отбор конфигураций ---
     logging.info("Этап 5: Отбор релевантных конфигураций...")
-    # Находим, каким исходным центроидам соответствуют целевые кластеры
+    
+    # Находим индексы релевантных центроидов
     relevant_centroid_indices = np.where(np.isin(labels, target_labels))[0]
     
-    # Теперь нужно сопоставить эти индексы с исходными конфигурациями. 
-    # Это самая сложная часть, если индексы были потеряны. 
-    # Перестроим логику, чтобы сохранить связь.
-
-    # Обновленная логика для шагов 3-6 для сохранения связей
-    # (Более простой и надежный подход)
-    
-    # Индексируем центроиды по их исходным конфигурациям
-    centroid_to_config_map = []
-    current_centroid_idx = 0
-    for i in range(n_configs):
-        mask = (ref_config_indices == i)
-        if not np.any(mask): continue
-        n_atoms = np.sum(mask)
-        n_c = min(n_atoms, n_clusters_per_config)
-        if n_c < 1: continue
-        for _ in range(n_c):
-            centroid_to_config_map.append(i)
-        
-    relevant_config_ids = set()
+    # По карте находим индексы релевантных ПРОРЕЖЕННЫХ конфигураций
+    relevant_thinned_config_indices = set()
     for centroid_idx in relevant_centroid_indices:
-        config_id = centroid_to_config_map[centroid_idx]
-        relevant_config_ids.add(config_id)
+        thinned_config_idx = centroid_to_thinned_config_map[centroid_idx]
+        relevant_thinned_config_indices.add(thinned_config_idx)
 
-    logging.info(f"Найдено {len(relevant_config_ids)} уникальных релевантных конфигураций до финальной выборки.")
+    logging.info(f"Найдено {len(relevant_thinned_config_indices)} релевантных блоков конфигураций до финальной выборки.")
     
-    # --- Шаг 7: Финальная выборка ---
+    # --- Шаг 7: Финальная выборка и РАСШИРЕНИЕ ---
     num_to_select = selection_params['num_output_configs']
-    if len(relevant_config_ids) < num_to_select:
-        logging.warning(f"Найдено меньше конфигураций ({len(relevant_config_ids)}), чем запрошено ({num_to_select}). Будут использованы все найденные.")
-        final_indices = list(relevant_config_ids)
-    else:
-        # Простое случайное сэмплирование для начала
-        final_indices = np.random.choice(list(relevant_config_ids), num_to_select, replace=False)
-
-    logging.info(f"Отобрано {len(final_indices)} конфигураций для итогового датасета.")
     
-    final_configurations = [all_configs[i] for i in final_indices]
-    return final_configurations, query_fp_raw, query_atoms_list, fp_centroids
+    # Выбираем ИНДЕКСЫ из прореженной выборки
+    if len(relevant_thinned_config_indices) * np.mean([meta['sampling_rate'] for meta in thinned_configs_metadata]) < num_to_select:
+        logging.warning(f"Найдено меньше конфигураций, чем запрошено. Будут использованы все найденные.")
+        final_thinned_indices = list(relevant_thinned_config_indices)
+    else:
+        # Случайная выборка БЛОКОВ
+        final_thinned_indices = np.random.choice(
+            list(relevant_thinned_config_indices), 
+            # Приблизительно выбираем нужное число блоков
+            int(num_to_select / np.mean([meta['sampling_rate'] for meta in thinned_configs_metadata])) + 1, 
+            replace=False
+        )
+
+    final_config_identifiers = []
+    for thinned_idx in final_thinned_indices:
+        meta = thinned_configs_metadata[thinned_idx]
+        start_idx = meta['original_start_idx']
+        sampling_rate = meta['sampling_rate']
+        source_path = meta['original_path']
+        
+        # Находим, сколько всего конфигураций в этом файле, чтобы не выйти за границу
+        total_in_file = 0
+        for info in source_datasets_info:
+            if info['path'] == source_path:
+                total_in_file = info['count']
+                break
+        
+        # Добавляем "адреса" всех конфигураций в блоке
+        for i in range(sampling_rate):
+            current_idx = start_idx + i
+            if current_idx < total_in_file:
+                final_config_identifiers.append({
+                    'source_path': source_path,
+                    'index_in_file': current_idx
+                })
+
+    logging.info(f"Сгенерировано {len(final_config_identifiers)} идентификаторов релевантных конфигураций.")
+    
+    # Обрезаем до нужного размера, если выбрали слишком много
+    if len(final_config_identifiers) > num_to_select:
+        final_config_identifiers = final_config_identifiers[:num_to_select]
+        logging.info(f"Список идентификаторов обрезан до требуемого размера: {len(final_config_identifiers)}.")
+
+    return final_config_identifiers, query_fp_raw, query_atoms_list

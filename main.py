@@ -137,7 +137,7 @@ def main(config_path: str):
     # --- ЭТАП 5: Обучение потенциала MTP ---
     if config.get('mtp_training', {}).get('enabled', False):
         logging.info("Запуск обучения MTP...")
-        train_mtp(config, train_dataset_path)
+        train_mtp(config, train_dataset_path_cfg)
     else:
         logging.info("Обучение MTP пропущено (отключено в конфигурации).")
 

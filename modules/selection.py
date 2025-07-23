@@ -16,13 +16,14 @@ def generate_relevant_dataset(
     ref_fingerprints: np.ndarray,
     selection_params: Dict,
     fp_params: Dict,
+    query_atoms_list: List # Configuration
 ) -> (List[Dict], np.ndarray, List): # Возвращаем список словарей-идентификаторов
     """
     Основная функция, выполняющая весь пайплайн отбора данных.
     """
     # --- Шаг 1: Получение фингерпринтов для query-структуры из SMILES ---
-    logging.info(f"Генерация query-структур (мономер и кольца) для SMILES: {smiles}")
-    query_atoms_list = smiles_to_ase_atoms(smiles)
+    #logging.info(f"Генерация query-структур (мономер и кольца) для SMILES: {smiles}")
+    #query_atoms_list = smiles_to_ase_atoms(smiles)
     if not query_atoms_list:
         raise RuntimeError("Не удалось сгенерировать ни одной query-структуры из SMILES.")
 
@@ -194,4 +195,4 @@ def generate_relevant_dataset(
         final_config_identifiers = final_config_identifiers[:num_to_select]
         logging.info(f"Список идентификаторов обрезан до требуемого размера: {len(final_config_identifiers)}.")
 
-    return final_config_identifiers, query_fp_raw, query_atoms_list
+    return final_config_identifiers, query_fp_raw

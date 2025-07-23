@@ -1,15 +1,15 @@
 {
   "general": {
     "smiles_polymer": "[*]CCCCC[*]",
-    "output_dir": "./CCCCC",
-    "device": "cuda"
+    "output_dir": "./CCCCC_cluster",
+    "device": "cpu"
   },
   "fingerprinting": {
     "datasets": [
       {
         "path": "polymers.cfg",
-        "fingerprints_cache": "fps_small.npy",
-        "sampling_rate_N": 100
+        "fingerprints_cache": "fps_big.npy",
+        "sampling_rate_N": 10
       }
     ],
     "mace_model_path": "2023-12-03-mace-mp.model",
@@ -19,7 +19,7 @@
   },
   "selection": {
     "num_output_configs": 500,
-    "intra_config_clusters": 1,
+    "intra_config_clusters": 2,
     "umap_params": {
       "n_neighbors": 40,
       "min_dist": 0.1,
@@ -31,23 +31,37 @@
     }
   },
   "mtp_training": {
-    "enabled": false,
-    "mtp_executable_path": "/path/to/mlp-24.1/bin/mtp",
-    "initial_potential": "pot.mtp",
+    "enabled": true,
+    "run_params": "mpirun -n 4",
+    "mtp_executable_path": "/media/daniil/Kingston/bmstu_polymers/mlp",
+    "initial_potential": "/media/daniil/Kingston/bmstu_polymers/08.mtp",
     "output_potential_name": "trained.mtp",
-    "training_command": "train"
+    "training_command": "train",
+    "training_params": {
+      "energy-weight": 1.0,
+      "force-weight": 0.01,
+      "stress-weight": 0.001,
+      "max-iter": 500,
+      "bfgs-conv-tol": "1e-3",
+      "weighting": "vibrations",
+      "skip-preinit": false
+    }
   },
   "md_validation": {
     "enabled": false,
     "temperature_K": 300,
     "md_steps": 10000
   },
+  "mtp_validation": {
+    "enabled": true,
+    "query_cfg_filename": "query_structures.cfg"
+  },
   "postprocessing": {
     "save_smiles_xyz": true,
     "smiles_xyz_filename": "query_structures.xyz",
     "save_relevant_xyz": true,
     "relevant_xyz_filename": "relevant_dataset.xyz",
-    "generate_umap_plot": true,
+    "generate_umap_plot": false,
     "umap_plot_filename": "umap_visualization.png",
 	"umap_plot_params": {
       "n_neighbors": 40,

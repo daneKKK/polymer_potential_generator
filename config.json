@@ -1,7 +1,7 @@
 {
   "general": {
-    "smiles_polymer": "[*]CCCCC[*]",
-    "output_dir": "./CCCCC_cluster",
+    "smiles_polymer": "[*]CC(c1ccccc1)[*]",
+    "output_dir": "./polystyrene_generation",
     "device": "cpu"
   },
   "fingerprinting": {
@@ -17,9 +17,14 @@
       "0": "C", "1": "H", "2": "O"
     }
   },
+  "query_generation": {
+    "monomer": true,
+    "rings": [2, 3],
+    "linear": [2, 3, 4]
+  },
   "selection": {
-    "num_output_configs": 500,
-    "intra_config_clusters": 2,
+    "num_output_configs": 1200,
+    "intra_config_clusters": 3,
     "umap_params": {
       "n_neighbors": 40,
       "min_dist": 0.1,
@@ -31,10 +36,10 @@
     }
   },
   "mtp_training": {
-    "enabled": true,
-    "run_params": "mpirun -n 4",
-    "mtp_executable_path": "/media/daniil/Kingston/bmstu_polymers/mlp",
-    "initial_potential": "/media/daniil/Kingston/bmstu_polymers/08.mtp",
+    "enabled": false,
+    "run_params": "mpirun -n 8",
+    "mtp_executable_path": "/home/daniil/mlip-2/bin/mlp",
+    "initial_potential": "/home/daniil/work/polystyrene/trained.mtp",
     "output_potential_name": "trained.mtp",
     "training_command": "train",
     "training_params": {

@@ -30,7 +30,6 @@ def main(config_path: str):
     logging.info(f"--- НАЧАЛО РАБОТЫ: {config['general']['smiles_polymer']} ---")
     
     # --- ЭТАП 1: Итеративная обработка метаданных и фингерпринтов ---
-    # all_configs_flat больше не нужен
     source_datasets_info = [] # Легкая структура: [{'path': ..., 'count': ...}, ...]
     thinned_configs_metadata = []
     all_ref_fingerprints = []
@@ -60,8 +59,14 @@ def main(config_path: str):
     logging.info(f"Всего проанализировано {sum(d['count'] for d in source_datasets_info)} конфигураций из {len(source_datasets_info)} файлов.")
     logging.info(f"Всего обработано {len(thinned_configs_metadata)} прореженных конфигураций.")
     
-    logging.info(f"Генерация query-структур (мономер и кольца) для SMILES: {config['general']['smiles_polymer']}")
-    query_atoms_list = smiles_to_ase_atoms(config['general']['smiles_polymer'])
+    logging.info("--- Генерация синтетических query-структур ---")
+    query_atoms_list = smiles_to_ase_atoms(
+        config['general']['smiles_polymer'],
+        config.get('query_generation', {}) # Передаем новый блок
+    )
+    if not query_atoms_list:
+        logging.error("Не удалось сгенерировать ни одной query-структуры. Прерывание работы.")
+        return
     
     # --- ЭТАП 2: Сохранение query-структур (включая .cfg) ---
     post_cfg = config.get('postprocessing', {})

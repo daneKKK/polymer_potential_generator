@@ -6,23 +6,22 @@ def calculate_grades(
     config: dict,
     potential_path: str,
     training_set_path: str,
-    query_cfg_path: str
-):
+    query_cfg_path: str,
+    als_output_path: str  # Новый аргумент
+) -> List[Configuration]: # Возвращаем конфиги с грейдами
     """
-    Запускает `mlp calc-grade` для оценки "новизны" query-конфигураций.
-    Команда перезаписывает query_cfg_path, добавляя в него Feature grade.
+    Запускает `mlp calc-grade` и создает state.als.
     """
     mtp_exec = config['mtp_training']['mtp_executable_path']
     
     tmp_cfg_path = os.path.join(config['general']['output_dir'], 'tmp.cfg')
     command_parts = [
-        mtp_exec,
-        "calc-grade",
-        potential_path,
-        training_set_path,
-        query_cfg_path, # Файл для чтения
-        tmp_cfg_path  # Временный файл для записи
+        mtp_exec, "calc-grade",
+        potential_path, training_set_path,
+        query_cfg_path, tmp_cfg_path, # in, out
+        f"--als-filename={als_output_path}" # Создаем .als файл
     ]
+    
     command = ' '.join(command_parts)
     logging.info(f"Запуск команды расчета грейдов: {command}")
     
@@ -50,3 +49,4 @@ def calculate_grades(
         logging.error("Stdout:\n" + e.stdout)
         logging.error("Stderr:\n" + e.stderr)
         raise
+    return Configuration.from_file(query_cfg_path)

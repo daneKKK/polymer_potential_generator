@@ -160,8 +160,19 @@ def main(config_path: str):
         logging.info("Обучение MTP пропущено (отключено в конфигурации).")
         # Если обучение пропущено, для расчета грейдов будем использовать initial_potential
         trained_potential_path = config['mtp_training']['initial_potential']
+        
+    # --- ЭТАП 7: АКТИВНОЕ ОБУЧЕНИЕ ---
+    if config.get('active_learning', {}).get('enabled', False):
+        if not query_cfg_path:
+            raise ValueError("Для активного обучения необходимо сохранить query-структуры в .cfg. Установите 'postprocessing.save_smiles_cfg' в true.")
+        if not trained_potential_path:
+             raise ValueError("Для активного обучения необходим начальный потенциал.")
+             
+        run_active_learning_loop(config, train_dataset_path_cfg, trained_potential_path, query_cfg_path)
 
-    # --- ЭТАП 7: Постобработка (визуализация и РАСЧЕТ ГРЕЙДОВ) ---
+    logging.info("--- РАБОТА ЗАВЕРШЕНА ---")
+
+    # --- ЭТАП 8: Постобработка (визуализация и РАСЧЕТ ГРЕЙДОВ) ---
     logging.info("Запуск постобработки...")
     
     # ... (сохранение .xyz для релевантного датасета) ...

@@ -1,6 +1,9 @@
 import os
 import logging
 import shutil
+import ase
+import subprocess
+
 from typing import List, Dict
 from .configuration import Configuration
 from .validation import calculate_grades
@@ -42,12 +45,21 @@ def run_active_learning_loop(
             if grade >= al_config['thresholds']['md_start']:
                 configs_to_process.append(cfg)
         
+        
         if not configs_to_process:
             logging.info("Все query-структуры имеют грейд ниже порога. Активное обучение завершено.")
             break
             
-        # 3. Сортируем кандидатов: сначала те, что > md_break, затем по убыванию грейда
-        configs_to_process.sort(key=lambda c: (c.grade >= al_config['thresholds']['md_break'], c.grade), reverse=True)
+        # Читаем обновленный файл и выводим грейды в лог
+        logging.info("--- Extrapolation Grades для синтетических конфигураций в активном обучении ---")
+        for i, cfg in enumerate(configs_to_process):
+            grade = cfg.features.get('MV_grade', 'N/A')
+            name = cfg.features.get('name', f'Конфигурация {i}')
+            logging.info(f"  - Структура: {name} | Grade: {grade}")
+        logging.info("-----------------------------------------------------")
+            
+        # 3. Сортируем кандидатов: сначала те, что > md_break, затем те, что > md_start
+        configs_to_process.sort(key=lambda c: (c.grade >= al_config['thresholds']['md_break'], c.grade >= al_config['thresholds']['md_start']), reverse=True)
         
         if not al_config['calculate_all_at_once']:
             configs_to_process = configs_to_process[:1] # Берем только одного, самого "плохого"
@@ -60,11 +72,12 @@ def run_active_learning_loop(
             run_name = cfg_to_run.features.get('name', 'unknown').replace('/', '_')
             run_dir = os.path.join(iter_dir, run_name)
             os.makedirs(run_dir, exist_ok=True)
+            logging.info(f"Обработка конфигурации {run_name} по адресу {run_dir}")
             
             # Копируем .cfg файл этого кандидата для LAMMPS
             ase_data = cfg_to_run.to_ase(type_map)
-            single_data_path = os.path.join(run_dir, "start.cfg")
-            ase.io.write(single_data_path, ase_datam, format='lammps-data')
+            single_data_path = os.path.join(run_dir, "start.data")
+            ase.io.write(single_data_path, ase_data, format='lammps-data', masses=True)
             
             # Запускаем MD-сэмплинг
             preselected_path = run_lammps_md_sampling(config, current_potential_path, state_als_path, single_data_path, run_dir)

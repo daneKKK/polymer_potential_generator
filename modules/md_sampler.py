@@ -19,12 +19,12 @@ def run_lammps_md_sampling(
     # 1. Создать mlip.ini
     mlip_ini_path = os.path.join(output_dir, "mlip.ini")
     with open(mlip_ini_path, 'w') as f:
-        f.write(f"mtp-filename = {os.path.abspath(potential_path)}\n")
-        f.write("select = TRUE\n")
-        f.write(f"select:load-state = {os.path.abspath(state_als_path)}\n")
-        f.write(f"select:threshold = {thresholds['md_start']}\n")
-        f.write(f"select:threshold-break = {thresholds['md_break']}\n")
-        f.write(f"select:save-selected = preselected.cfg\n")
+        f.write(f"mtp-filename {os.path.abspath(potential_path)}\n")
+        f.write("select TRUE\n")
+        f.write(f"select:load-state {os.path.abspath(state_als_path)}\n")
+        f.write(f"select:threshold {thresholds['md_start']}\n")
+        f.write(f"select:threshold-break {thresholds['md_break']}\n")
+        f.write(f"select:save-selected preselected.cfg\n")
     logging.info(f"Создан файл настроек mlip.ini: {mlip_ini_path}")
 
     # 2. Подготовить LAMMPS скрипт из шаблона
@@ -36,8 +36,8 @@ def run_lammps_md_sampling(
         STEPS=md_cfg['steps'],
         INPUT_CFG=os.path.abspath(input_data_path)
     )
-    script_path = os.path.join(output_dir, "run_lammps.in")
-    with open(script_path, 'w') as f:
+    script_path = "run_lammps.in"
+    with open(os.path.join(output_dir, script_path), 'w') as f:
         f.write(script_content)
 
     # 3. Запустить LAMMPS
@@ -48,7 +48,7 @@ def run_lammps_md_sampling(
     process = subprocess.Popen(command, shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, cwd=output_dir)
     
     for line in process.stdout:
-        print(line.strip())
+        #print(line.strip())
         logging.info(line.strip())
     
     process.wait()
@@ -62,5 +62,5 @@ def run_lammps_md_sampling(
         logging.info(f"LAMMPS MD завершен. Найдены экстраполяционные конфигурации в {preselected_path}")
         return preselected_path
     else:
-        logging.info("LAMMPS MD завершен. Новых экстраполяционных конфигураций не найдено.")
+        logging.info(f"LAMMPS MD завершен. Новых экстраполяционных конфигураций в {preselected_path} не найдено.")
         return None

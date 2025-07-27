@@ -1,5 +1,6 @@
 import logging
 import re
+import numpy as np
 from typing import List, Dict, Optional
 from ase import Atoms
 from rdkit import Chem
@@ -17,7 +18,7 @@ def setup_logging(log_file: str):
         ]
     )
 
-def _generate_monomer(smiles: str) -> Optional[Atoms]:
+def _generate_monomer(smiles: str, r_max=8) -> Optional[Atoms]:
     """Генерирует 3D структуру для одного мономера."""
     monomer_smiles_str = smiles.replace('[*]', '')
     logging.info(f"  -> Генерация мономера: {monomer_smiles_str}")
@@ -35,7 +36,9 @@ def _generate_monomer(smiles: str) -> Optional[Atoms]:
         
         positions = mol.GetConformer().GetPositions()
         symbols = [atom.GetSymbol() for atom in mol.GetAtoms()]
-        atoms = Atoms(symbols=symbols, positions=positions, cell=[100.0, 100.0, 100.0], pbc=True)
+        atoms = Atoms(symbols=symbols, positions=positions, cell=[100, 100, 100], pbc=True)
+        borders = np.max(atoms.get_positions(), axis=0) - np.min(atoms.get_positions(), axis=0) + 2 * (r_max + 1) #по-хорошему надо работать сразу с positions, но мне впадлу тестить работоспособность - я хз какая форма у positions и где какая ось
+        atoms.set_cell(borders)
         
         # Добавляем метаданные
         atoms.info['name'] = 'monomer'
@@ -46,7 +49,7 @@ def _generate_monomer(smiles: str) -> Optional[Atoms]:
         logging.error(f"Ошибка при генерации мономера: {e}", exc_info=True)
         return None
 
-def _generate_linear_oligomer(polymer_smiles: str, n: int) -> Optional[Atoms]:
+def _generate_linear_oligomer(polymer_smiles: str, n: int, r_max=5) -> Optional[Atoms]:
     """Генерирует 3D структуру для линейного олигомера из n звеньев."""
     logging.info(f"  -> Генерация линейного олигомера (n={n})")
     
@@ -69,6 +72,8 @@ def _generate_linear_oligomer(polymer_smiles: str, n: int) -> Optional[Atoms]:
         positions = mol_chain.GetConformer().GetPositions()
         symbols = [atom.GetSymbol() for atom in mol_chain.GetAtoms()]
         atoms = Atoms(symbols=symbols, positions=positions, cell=[100.0, 100.0, 100.0], pbc=True)
+        borders = np.max(atoms.get_positions(), axis=0) - np.min(atoms.get_positions(), axis=0) + 2 * (r_max + 1)
+        atoms.set_cell(borders)
 
         # Добавляем метаданные
         atoms.info['name'] = f'linear_n{n}'
@@ -80,7 +85,7 @@ def _generate_linear_oligomer(polymer_smiles: str, n: int) -> Optional[Atoms]:
         logging.error(f"Ошибка при генерации линейного олигомера n={n}: {e}", exc_info=True)
         return None
 
-def _generate_ring(polymer_smiles: str, n: int) -> Optional[Atoms]:
+def _generate_ring(polymer_smiles: str, n: int, r_max=5.0) -> Optional[Atoms]:
     """Генерирует 3D структуру для циклического олигомера из n звеньев."""
     logging.info(f"  -> Генерация кольца (n={n})")
 
@@ -122,6 +127,8 @@ def _generate_ring(polymer_smiles: str, n: int) -> Optional[Atoms]:
         positions = mol_ring.GetConformer().GetPositions()
         symbols = [atom.GetSymbol() for atom in mol_ring.GetAtoms()]
         atoms = Atoms(symbols=symbols, positions=positions, cell=[100.0, 100.0, 100.0], pbc=True)
+        borders = np.max(atoms.get_positions(), axis=0) - np.min(atoms.get_positions(), axis=0) + 2 * (r_max + 1)
+        atoms.set_cell(borders)
         
         # Добавляем метаданные
         atoms.info['name'] = f'ring_n{n}'

@@ -14,6 +14,7 @@ from modules.selection import generate_relevant_dataset
 from modules.training import train_mtp
 from modules.visualization import generate_umap_plot
 from modules.validation import calculate_grades
+from modules.active_learning import run_active_learning_loop
 
 def main(config_path: str):
     with open(config_path, 'r') as f:
@@ -161,25 +162,8 @@ def main(config_path: str):
         # Если обучение пропущено, для расчета грейдов будем использовать initial_potential
         trained_potential_path = config['mtp_training']['initial_potential']
         
-    # --- ЭТАП 7: АКТИВНОЕ ОБУЧЕНИЕ ---
-    if config.get('active_learning', {}).get('enabled', False):
-        if not query_cfg_path:
-            raise ValueError("Для активного обучения необходимо сохранить query-структуры в .cfg. Установите 'postprocessing.save_smiles_cfg' в true.")
-        if not trained_potential_path:
-             raise ValueError("Для активного обучения необходим начальный потенциал.")
-             
-        run_active_learning_loop(config, train_dataset_path_cfg, trained_potential_path, query_cfg_path)
-
-    logging.info("--- РАБОТА ЗАВЕРШЕНА ---")
-
-    # --- ЭТАП 8: Постобработка (визуализация и РАСЧЕТ ГРЕЙДОВ) ---
-    logging.info("Запуск постобработки...")
-    
-    # ... (сохранение .xyz для релевантного датасета) ...
-
-    # Расчет грейдов
     if grade_cfg.get('enabled', False) and trained_potential_path:
-        calculate_grades(config, trained_potential_path, train_dataset_path_cfg, query_cfg_path)
+        calculate_grades(config, trained_potential_path, train_dataset_path_cfg, query_cfg_path, os.path.join(output_dir, "state.als"))
         
         # Читаем обновленный файл и выводим грейды в лог
         updated_query_configs = Configuration.from_file(query_cfg_path)
@@ -187,8 +171,23 @@ def main(config_path: str):
         for i, cfg in enumerate(updated_query_configs):
             grade = cfg.features.get('MV_grade', 'N/A')
             name = cfg.features.get('name', f'Конфигурация {i}')
-            logging.info(f"  - Структура: {os.path.basename(name)} | Grade: {grade}")
+            logging.info(f"  - Структура: {name} | Grade: {grade}")
         logging.info("-----------------------------------------------------")
+        
+    # --- ЭТАП 7: АКТИВНОЕ ОБУЧЕНИЕ ---
+    if config.get('active_learning', {}).get('enabled', False):
+        if not query_cfg_path:
+            raise ValueError("Для активного обучения необходимо сохранить query-структуры в .cfg. Установите 'postprocessing.save_smiles_cfg' в true.")
+        if not trained_potential_path:
+             raise ValueError("Для активного обучения необходим начальный потенциал.")
+             
+        run_active_learning_loop(config, train_dataset_path_cfg, trained_potential_path, query_cfg_path, type_map)
+
+    logging.info("--- РАБОТА ЗАВЕРШЕНА ---")
+
+    # --- ЭТАП 8: Постобработка (визуализация и РАСЧЕТ ГРЕЙДОВ) ---
+    logging.info("Запуск постобработки...")
+    
         
     logging.info("--- РАБОТА ЗАВЕРШЕНА ---")
 

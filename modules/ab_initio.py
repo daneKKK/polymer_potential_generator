@@ -28,24 +28,27 @@ def run_vasp_calculations(
         try:
             # 1. Подготовить входные файлы
             atoms = cfg_in.to_ase(type_map)
-            ase.io.write(os.path.join(calc_dir, "POSCAR"), atoms, format='vasp')
+            ase.io.write(os.path.join(calc_dir, "POSCAR"), atoms, format='vasp', sort=True)
 
             # Копируем INCAR, KPOINTS
             shutil.copy(vasp_cfg['input_files']['INCAR'], calc_dir)
             shutil.copy(vasp_cfg['input_files']['KPOINTS'], calc_dir)
+            #shutil.copy(vasp_cfg['input_files']['POTCAR'], calc_dir) #не забываем, что в ПОТКАРе элементы в алфавитном порядке!!! н-р CHO
             
             # Создаем POTCAR
             potcar_path = os.path.join(calc_dir, "POTCAR")
             unique_symbols = sorted(list(set(atoms.get_chemical_symbols())))
-            with open(potcar_path, 'wb') as potcar_out:
-                # Предполагается, что POTCAR - это один большой файл с PBE-рекомендованными потенциалами
-                with open(vasp_cfg['input_files']['POTCAR'], 'rb') as potcar_in:
-                    all_potcars = potcar_in.read().split(b'End of Dataset\n')
-                    potcar_map = {p.split(b'\\n')[1].split()[1]: p for p in all_potcars if p}
-                    for symbol in unique_symbols:
-                        potcar_out.write(potcar_map[symbol.encode()] + b'End of Dataset\n')
-
-            # 2. Запустить VASP
+            logging.info(f"Собираем один POTCAR для следующего списка элементов: {unique_symbols}")
+            with open(potcar_path, 'w') as potcar_out:
+                for symbol in unique_symbols:
+                    try:
+                        potcar_in_path = vasp_cfg['input_files']['POTCARS'][symbol]
+                        with open(potcar_in_path, 'r') as potcar_in:
+                            for line in potcar_in:
+                                potcar_out.write(line)
+                    except:
+                        logging.error(f'Не найден POTCAR для элемента {symbol}')
+                        raise ValueError("Не найден псевдопотенциал")
             command = f"{vasp_cfg.get('run_params','')} {vasp_cfg['executable_path']}"
             logging.info(f"Запуск VASP в {calc_dir}")
             
@@ -63,8 +66,8 @@ def run_vasp_calculations(
             logging.info("--- Начало вывода VASP (stdout) ---")
         
             for line in process.stdout:
-            clean_line = line.strip()
-            logging.info(clean_line) # Дублирование в лог
+                clean_line = line.strip()
+                logging.info(clean_line) # Дублирование в лог
 
             logging.info("--- Конец вывода VASP (stdout) ---")
 

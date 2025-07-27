@@ -1,6 +1,9 @@
 import subprocess
 import logging
 import os
+from typing import List
+
+from .configuration import Configuration
 
 def calculate_grades(
     config: dict,

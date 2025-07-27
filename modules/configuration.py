@@ -52,7 +52,7 @@ class Configuration:
             # Ищем начало нового блока
             if "BEGIN_CFG" in lines[i]:
                 config = Configuration()
-                config.features['name'] = filepath
+                #config.features['name'] = filepath
                 i += 1
                 
                 # Читаем блок до его конца
@@ -341,7 +341,7 @@ class Configuration:
                 if config_counter in target_indices:
                     # Нашли нужный блок, начинаем парсинг
                     config = Configuration()
-                    config.features['name'] = filepath
+                    #config.features['name'] = filepath
                     i += 1
                     
                     # ... (здесь копипаста логики парсинга из from_file) ...

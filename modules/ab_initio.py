@@ -31,8 +31,11 @@ def run_vasp_calculations(
             ase.io.write(os.path.join(calc_dir, "POSCAR"), atoms, format='vasp', sort=True)
 
             # Копируем INCAR, KPOINTS
-            shutil.copy(vasp_cfg['input_files']['INCAR'], calc_dir)
-            shutil.copy(vasp_cfg['input_files']['KPOINTS'], calc_dir)
+            if len(configs_to_calc) <= 1:
+                shutil.copy(vasp_cfg['input_files'].get('INCAR_MD', vasp_cfg['input_files']['INCAR']), os.path.join(calc_dir, 'INCAR'))
+            else:
+                shutil.copy(vasp_cfg['input_files']['INCAR'], os.path.join(calc_dir, 'INCAR'))
+            shutil.copy(vasp_cfg['input_files']['KPOINTS'], os.path.join(calc_dir, 'KPOINTS'))
             #shutil.copy(vasp_cfg['input_files']['POTCAR'], calc_dir) #не забываем, что в ПОТКАРе элементы в алфавитном порядке!!! н-р CHO
             
             # Создаем POTCAR
@@ -86,15 +89,16 @@ def run_vasp_calculations(
                 logging.warning("Вывод MTP (stderr):\n" + stderr_output)
 
             # 3. Прочитать результаты
-            result_atoms = ase.io.read(os.path.join(calc_dir, "vasprun.xml"), format="vasp-xml")
+            result_atoms = ase.io.read(os.path.join(calc_dir, "vasprun.xml"), format="vasp-xml", index=':')
             
             # Конвертируем обратно в Configuration, сохраняя исходные фичи
-            cfg_out = Configuration.from_ase_atoms(result_atoms, type_map_reverse)
+            cfgs_out = [Configuration.from_ase_atoms(result_atoms_indiv, type_map_reverse) for result_atoms_indiv in result_atoms]
             for key, value in cfg_in.features.items():
-                if key not in cfg_out.features:
-                    cfg_out.features[key] = value
+                for cfg_out in cfgs_out:
+                    if key not in cfg_out.features:
+                        cfg_out.features[key] = value
 
-            calculated_configs.append(cfg_out)
+            calculated_configs.append(cfgs_out)
 
         except Exception as e:
             logging.error(f"Ошибка при расчете VASP в {calc_dir}: {e}")

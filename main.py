@@ -136,6 +136,8 @@ def main(config_path: str):
         # Записываем в XYZ порциями
         with open(xyz_path, 'w') as f_xyz: # Открываем в бинарном режиме для ASE
             for source_path, indices in tqdm(grouped_ids.items(), desc="Сохранение .xyz"):
+                logging.info(f"Сохранение {len(indices)} конфигураций из релевантного датасета из {source_path}")
+                configs_to_write = Configuration.from_file_by_indices(source_path, indices)
                 ase_configs = [cfg.to_ase(type_map) for cfg in configs_to_write]
                 ase.io.write(f_xyz, ase_configs, format='extxyz', append=True)
 

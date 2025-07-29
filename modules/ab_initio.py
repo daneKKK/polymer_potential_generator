@@ -98,7 +98,7 @@ def run_vasp_calculations(
                     if key not in cfg_out.features:
                         cfg_out.features[key] = value
 
-            calculated_configs.append(cfgs_out)
+            calculated_configs.extend(cfgs_out)
 
         except Exception as e:
             logging.error(f"Ошибка при расчете VASP в {calc_dir}: {e}")

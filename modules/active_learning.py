@@ -91,7 +91,7 @@ def run_active_learning_loop(
                 # Запускаем ab initio расчет
                 configs_for_vasp = Configuration.from_file(selected_path)
                 vasp_results = run_vasp_calculations(configs_for_vasp, config, run_dir)
-                new_ab_initio_configs.append(vasp_results)
+                new_ab_initio_configs.extend(vasp_results)
         
         # 5. Обновляем датасет и переобучаем потенциал
         if not new_ab_initio_configs:

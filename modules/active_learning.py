@@ -102,8 +102,11 @@ def run_active_learning_loop(
         
         # Создаем новый объединенный датасет
         next_train_path = os.path.join(iter_dir, "train.cfg")
+        appended_path = os.path.join(iter_dir, "appended.cfg")
         shutil.copy(current_train_path, next_train_path)
         with open(next_train_path, 'a') as f:
+            Configuration.save_to_file(new_ab_initio_configs, f)
+        with open(appended_path, 'w') as f:
             Configuration.save_to_file(new_ab_initio_configs, f)
         
         # Переобучаем потенциал

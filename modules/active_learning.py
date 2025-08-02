@@ -110,9 +110,9 @@ def run_active_learning_loop(
             Configuration.save_to_file(new_ab_initio_configs, f)
         
         # Переобучаем потенциал
-        next_potential_path = os.path.join(iter_dir, "trained.mtp")
+        next_potential_path = os.path.join(os.path.basename(iter_dir), "trained.mtp")
         #confif['mtp_training']["initial_potential"] = config['mtp_training']['output_potential_name']
-        config['mtp_training']['output_potential_name'] = os.path.basename(next_potential_path) # обновляем имя для train_mtp
+        config['mtp_training']['output_potential_name'] = next_potential_path # обновляем имя для train_mtp
         train_mtp(config, next_train_path)
 
         # Обновляем пути для следующей итерации

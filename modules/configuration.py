@@ -276,8 +276,8 @@ class Configuration:
         # 5. Данные по атомам
         positions = atoms.get_positions()
         symbols = atoms.get_chemical_symbols()
-        has_forces = 'forces' in atoms.arrays
-        forces = atoms.get_forces() if (has_forces or (atoms.calc is not None)) else None
+        has_forces = ('forces' in atoms.arrays) or (atoms.calc is not None)
+        forces = atoms.get_forces() if has_forces else None
 
         for i in range(config.size):
             atom_dict = {}

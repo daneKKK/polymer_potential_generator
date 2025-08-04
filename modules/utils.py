@@ -39,6 +39,7 @@ def _generate_monomer(smiles: str, r_max=8) -> Optional[Atoms]:
         atoms = Atoms(symbols=symbols, positions=positions, cell=[100, 100, 100], pbc=True)
         borders = np.max(atoms.get_positions(), axis=0) - np.min(atoms.get_positions(), axis=0) + 2 * (r_max + 1) #по-хорошему надо работать сразу с positions, но мне впадлу тестить работоспособность - я хз какая форма у positions и где какая ось
         atoms.set_cell(borders)
+        atoms.translate(borders * 0.5)
         
         # Добавляем метаданные
         atoms.info['name'] = 'monomer'
@@ -74,6 +75,7 @@ def _generate_linear_oligomer(polymer_smiles: str, n: int, r_max=5) -> Optional[
         atoms = Atoms(symbols=symbols, positions=positions, cell=[100.0, 100.0, 100.0], pbc=True)
         borders = np.max(atoms.get_positions(), axis=0) - np.min(atoms.get_positions(), axis=0) + 2 * (r_max + 1)
         atoms.set_cell(borders)
+        atoms.translate(borders * 0.5)
 
         # Добавляем метаданные
         atoms.info['name'] = f'linear_n{n}'
@@ -129,6 +131,7 @@ def _generate_ring(polymer_smiles: str, n: int, r_max=5.0) -> Optional[Atoms]:
         atoms = Atoms(symbols=symbols, positions=positions, cell=[100.0, 100.0, 100.0], pbc=True)
         borders = np.max(atoms.get_positions(), axis=0) - np.min(atoms.get_positions(), axis=0) + 2 * (r_max + 1)
         atoms.set_cell(borders)
+        atoms.translate(borders * 0.5)
         
         # Добавляем метаданные
         atoms.info['name'] = f'ring_n{n}'

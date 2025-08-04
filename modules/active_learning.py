@@ -26,6 +26,8 @@ def run_active_learning_loop(
     
     current_train_path = initial_train_path
     current_potential_path = initial_potential_path
+    
+    query_index_for_md = 0
 
     for i in range(al_config['n_iterations']):
         iter_num = i + 1
@@ -47,8 +49,11 @@ def run_active_learning_loop(
         
         
         if not configs_to_process:
-            logging.info("Все query-структуры имеют грейд ниже порога. Активное обучение завершено.")
-            break
+            logging.info("Все query-структуры имеют грейд ниже порога. Начинаем перебирать все по порядку.")
+            configs_to_process.append(validated_queries[query_index_for_md])
+            query_index_for_md += 1
+        else:
+            query_index_for_md = 0
             
         # Читаем обновленный файл и выводим грейды в лог
         logging.info("--- Extrapolation Grades для синтетических конфигураций в активном обучении ---")
@@ -95,8 +100,12 @@ def run_active_learning_loop(
         
         # 5. Обновляем датасет и переобучаем потенциал
         if not new_ab_initio_configs:
-            logging.warning("Ни одной новой конфигурации не было посчитано на этой итерации. Завершение цикла.")
-            break
+            logging.info("Ни одной новой конфигурации не было посчитано на этой итерации.")
+            if query_index_md == len(validated_queries):
+                logging.info("Все query конфигурации перебраны с помощью МД, согласно критерию D-оптимальности датасет достаточно полон.")
+                break
+            else:
+                continue
             
         logging.info(f"Добавление {len(new_ab_initio_configs)} новых конфигураций в обучающий датасет.")
         
@@ -111,12 +120,13 @@ def run_active_learning_loop(
         
         # Переобучаем потенциал
         next_potential_path = os.path.join(os.path.basename(iter_dir), "trained.mtp")
-        #confif['mtp_training']["initial_potential"] = config['mtp_training']['output_potential_name']
+        config['mtp_training']["initial_potential"] = os.path.join(output_dir, config['mtp_training']['output_potential_name'])
         config['mtp_training']['output_potential_name'] = next_potential_path # обновляем имя для train_mtp
         train_mtp(config, next_train_path)
 
         # Обновляем пути для следующей итерации
         current_train_path = next_train_path
-        current_potential_path = next_potential_path
+        current_potential_path = os.path.join(output_dir, next_potential_path)
+        config['mtp_training']["initial_potential"] = current_potential_path
 
     logging.info("Цикл активного обучения завершен.")

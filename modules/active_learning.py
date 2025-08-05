@@ -49,8 +49,10 @@ def run_active_learning_loop(
         
         
         if not configs_to_process:
-            logging.info("Все query-структуры имеют грейд ниже порога. Начинаем перебирать все по порядку.")
+            logging.info("Все query-структуры имеют грейд ниже порога. Перебираем всех по порядку.")
             configs_to_process.append(validated_queries[query_index_for_md])
+            name = configs_to_process[-1].features.get('name', f"конфигурацию {query_index_for_md}")
+            logging.info(f"Выбираем {name}")
             query_index_for_md += 1
         else:
             query_index_for_md = 0
@@ -101,7 +103,7 @@ def run_active_learning_loop(
         # 5. Обновляем датасет и переобучаем потенциал
         if not new_ab_initio_configs:
             logging.info("Ни одной новой конфигурации не было посчитано на этой итерации.")
-            if query_index_md == len(validated_queries):
+            if query_index_for_md == len(validated_queries):
                 logging.info("Все query конфигурации перебраны с помощью МД, согласно критерию D-оптимальности датасет достаточно полон.")
                 break
             else:

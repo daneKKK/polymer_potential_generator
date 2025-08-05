@@ -7,74 +7,57 @@ from sklearn.neighbors import NearestCentroid
 import umap
 from mace.calculators import MACECalculator
 from typing import List, Dict
+from collections import defaultdict
+
 from .utils import smiles_to_ase_atoms
 
 def generate_relevant_dataset(
     smiles: str,
-    source_datasets_info: List[Dict], # Новая структура с информацией о датасетах
+    source_datasets_info: List[Dict],
     thinned_configs_metadata: List[Dict],
     ref_fingerprints: np.ndarray,
     selection_params: Dict,
     fp_params: Dict,
-    query_atoms_list: List # Configuration
-) -> (List[Dict], np.ndarray, List): # Возвращаем список словарей-идентификаторов
+    query_atoms_list: List
+) -> (List[Dict], np.ndarray):
     """
-    Основная функция, выполняющая весь пайплайн отбора данных.
+    Основная функция, выполняющая весь пайплайн отбора данных с детерминированной выборкой.
     """
-    # --- Шаг 1: Получение фингерпринтов для query-структуры из SMILES ---
-    #logging.info(f"Генерация query-структур (мономер и кольца) для SMILES: {smiles}")
-    #query_atoms_list = smiles_to_ase_atoms(smiles)
-    if not query_atoms_list:
-        raise RuntimeError("Не удалось сгенерировать ни одной query-структуры из SMILES.")
-
+    # --- Шаги 1-4: Генерация FP, нормализация, кластеризация, UMAP ---
+    # Эта часть остается без изменений, она подготавливает все необходимые данные.
+    
     logging.info("Расчет фингерпринтов для query-структур...")
     calc = MACECalculator(model_paths=fp_params['mace_model_path'], device=fp_params['device'])
-    
-    query_fp_raw_list = []
-    for atoms in query_atoms_list:
-        logging.info(f"  -> Обработка структуры '{atoms.info.get('name', 'N/A')}' с {len(atoms)} атомами.")
-        query_fp_raw_list.append(calc.get_descriptors(atoms))
-    
+    query_fp_raw_list = [calc.get_descriptors(atoms) for atoms in query_atoms_list]
     query_fp_raw = np.vstack(query_fp_raw_list)
-    
-    # --- Шаг 2: Подготовка и нормализация данных ---
-    # ... (эта часть остается почти такой же) ...
-    ref_fp_only = ref_fingerprints[:, :-1]
-    # Теперь этот индекс - это индекс в прореженной выборке
-    ref_thinned_config_indices = ref_fingerprints[:, -1].astype(int)
 
+    logging.info("Подготовка и нормализация данных...")
+    ref_fp_only = ref_fingerprints[:, :-1]
+    ref_thinned_config_indices = ref_fingerprints[:, -1].astype(int)
     scaler = StandardScaler().fit(ref_fp_only)
     ref_fp_scaled = scaler.transform(ref_fp_only)
     query_fp_scaled = scaler.transform(query_fp_raw)
-    
-    # --- Шаг 3: Внутриконфигурационная кластеризация ---
+
     logging.info("Этап 1: Внутриконфигурационная кластеризация...")
     n_thinned_configs = len(thinned_configs_metadata)
     n_clusters_per_config = selection_params['intra_config_clusters']
     fp_centroids_list = []
-    centroid_to_thinned_config_map = [] # Карта: индекс центроида -> индекс в thinned_configs_metadata
-
+    centroid_to_thinned_config_map = []
     for i in tqdm(range(n_thinned_configs), desc="Кластеризация конфигураций"):
         mask = (ref_thinned_config_indices == i)
         if not np.any(mask): continue
-        
-        # ... (логика кластеризации одной конфигурации остается той же) ...
         config_fps_scaled = ref_fp_scaled[mask]
         n_atoms = config_fps_scaled.shape[0]
         n_c = min(n_atoms, n_clusters_per_config)
         if n_c < 1: continue
-
         clusterizer = AgglomerativeClustering(n_clusters=n_c).fit(config_fps_scaled)
-        
         for label in range(n_c):
             centroid = np.mean(config_fps_scaled[clusterizer.labels_ == label], axis=0)
             fp_centroids_list.append(centroid)
-            # Запоминаем, что этот центроид относится к i-й конфигурации в прореженной выборке
             centroid_to_thinned_config_map.append(i)
 
     fp_centroids = np.array(fp_centroids_list)
     
-    # --- Шаг 4 (UMAP и финальная кластеризация) ---
     logging.info("Этап 2: Понижение размерности с помощью UMAP...")
     reducer = umap.UMAP(**selection_params['umap_params']).fit(fp_centroids)
     embedding_cl = reducer.transform(fp_centroids)
@@ -85,101 +68,114 @@ def generate_relevant_dataset(
     
     unique_labels, counts = np.unique(labels, return_counts=True)
     logging.info(f"Найдено {len(unique_labels)} уникальных кластеров в референсном датасете.")
-    for label, count in zip(unique_labels, counts):
-        logging.info(f"  - Кластер {label}: {count} центроидов конфигураций")
     
-    # --- Шаг 5: Поиск релевантных кластеров ---
-    logging.info("Этап 4: Определение релевантных кластеров...")
+    # --- Шаг 5: Поиск релевантных кластеров и расчет метрик релевантности ---
+    logging.info("Этап 4: Определение релевантных кластеров и расчет метрик...")
     clf = NearestCentroid().fit(embedding_cl, labels)
     
-    # Кластеризуем query-фингерпринты, чтобы получить query-центроиды
     query_clusterizer = AgglomerativeClustering(n_clusters=min(query_fp_scaled.shape[0], n_clusters_per_config)).fit(query_fp_scaled)
     query_centroids_scaled = np.array([np.mean(query_fp_scaled[query_clusterizer.labels_ == l], axis=0) for l in range(query_clusterizer.n_clusters_)])
-    
     query_embedding = reducer.transform(query_centroids_scaled)
-    target_labels = np.unique(clf.predict(query_embedding))
-   
-    # Сначала найдем для каждого query-центроида его ближайший референсный кластер и расстояние до его центра
-    predicted_labels_per_query = clf.predict(query_embedding)
-    cluster_distances = {} # Словарь для хранения минимального расстояния до каждого целевого кластера
     
-    for i, query_point_emb in enumerate(query_embedding):
-        label = predicted_labels_per_query[i]
-        ref_centroid_emb = clf.centroids_[label]
-        distance = np.linalg.norm(query_point_emb - ref_centroid_emb)
-        
-        # Сохраняем минимальное расстояние для каждого кластера
-        if label not in cluster_distances or distance < cluster_distances[label]:
-            cluster_distances[label] = distance
+    # Группируем query-центроиды по предсказанным кластерам
+    predicted_labels = clf.predict(query_embedding)
+    target_labels = np.unique(predicted_labels)
+    
+    query_centroids_by_cluster = defaultdict(list)
+    for i, label in enumerate(predicted_labels):
+        query_centroids_by_cluster[label].append(query_embedding[i])
 
-    log_messages = []
-    for label in target_labels:
-        # Находим все точки (центроиды конфигураций) в этом кластере
-        points_in_cluster = fp_centroids[labels == label]
+    # --- НОВАЯ ЛОГИКА ---
+    # --- Шаг 6: Детерминированный отбор конфигураций ---
+    logging.info("Этап 5: Детерминированный отбор релевантных конфигураций...")
+    
+    # 1. Для каждого релевантного кластера находим все его конфигурации и считаем их релевантность
+    candidates_by_cluster = defaultdict(list)
+    for i, label in enumerate(labels):
+        if label in target_labels:
+            db_centroid_emb = embedding_cl[i]
+            # Считаем среднее расстояние до релевантных query-центроидов
+            distance = np.mean([np.linalg.norm(db_centroid_emb - qc_emb) for qc_emb in query_centroids_by_cluster[label]])
+            
+            thinned_idx = centroid_to_thinned_config_map[i]
+            candidates_by_cluster[label].append({
+                "thinned_idx": thinned_idx,
+                "distance": distance
+            })
+            
+    # 2. Сортируем кандидатов внутри каждого кластера по релевантности (возрастанию расстояния)
+    for label in candidates_by_cluster:
+        # Убираем дубликаты по thinned_idx, оставляя запись с минимальным расстоянием
+        unique_candidates = {}
+        for cand in candidates_by_cluster[label]:
+            idx = cand["thinned_idx"]
+            if idx not in unique_candidates or cand["distance"] < unique_candidates[idx]["distance"]:
+                unique_candidates[idx] = cand
         
-        # Считаем дисперсию (размер) кластера. Используем не embedding, а исходные fp_centroids
-        if points_in_cluster.shape[0] > 1:
-            # Средняя дисперсия по всем измерениям
-            dispersion = np.mean(np.var(points_in_cluster, axis=0))
-            # "Радиус" или "размер" кластера
-            radius = np.sqrt(dispersion)
-        else:
-            radius = 1e-6 # Избегаем деления на ноль для кластеров из одной точки
-        
-        min_dist_to_cluster = cluster_distances.get(label, 0.0)
-        relevance_metric = min_dist_to_cluster / radius
+        sorted_unique = sorted(unique_candidates.values(), key=lambda x: x["distance"])
+        candidates_by_cluster[label] = sorted_unique
 
-        log_messages.append(
-            f"  - Кластер {label}: {counts[list(unique_labels).index(label)]} конфиг., метрика близости = {relevance_metric:.3f}"
-        )
-    
-    logging.info("Целевые кластеры, релевантные для SMILES:\n" + "\n".join(log_messages))
-    
-    # --- Шаг 6: Отбор конфигураций ---
-    logging.info("Этап 5: Отбор релевантных конфигураций...")
-    
-    # Находим индексы релевантных центроидов
-    relevant_centroid_indices = np.where(np.isin(labels, target_labels))[0]
-    
-    # По карте находим индексы релевантных ПРОРЕЖЕННЫХ конфигураций
-    relevant_thinned_config_indices = set()
-    for centroid_idx in relevant_centroid_indices:
-        thinned_config_idx = centroid_to_thinned_config_map[centroid_idx]
-        relevant_thinned_config_indices.add(thinned_config_idx)
-
-    logging.info(f"Найдено {len(relevant_thinned_config_indices)} релевантных блоков конфигураций до финальной выборки.")
-    
-    # --- Шаг 7: Финальная выборка и РАСШИРЕНИЕ ---
+    # 3. Пропорциональный отбор "по кругу"
     num_to_select = selection_params['num_output_configs']
+    final_selection_metadata = []
     
-    # Выбираем ИНДЕКСЫ из прореженной выборки
-    if len(relevant_thinned_config_indices) * np.mean([meta['sampling_rate'] for meta in thinned_configs_metadata]) < num_to_select:
-        logging.warning(f"Найдено меньше конфигураций, чем запрошено. Будут использованы все найденные.")
-        final_thinned_indices = list(relevant_thinned_config_indices)
-    else:
-        # Случайная выборка БЛОКОВ
-        final_thinned_indices = np.random.choice(
-            list(relevant_thinned_config_indices), 
-            # Приблизительно выбираем нужное число блоков
-            int(num_to_select / np.mean([meta['sampling_rate'] for meta in thinned_configs_metadata])) + 1, 
-            replace=False
-        )
+    # Оценочное количество конфигураций на блок
+    avg_sampling_rate = np.mean([meta['sampling_rate'] for meta in thinned_configs_metadata]) if thinned_configs_metadata else 1
+    
+    # Итераторы для каждого кластера
+    iterators = {label: iter(candidates) for label, candidates in candidates_by_cluster.items()}
+    
+    total_configs_selected = 0
+    while total_configs_selected < num_to_select:
+        added_in_round = False
+        for label in target_labels:
+            try:
+                candidate = next(iterators[label])
+                # Добавляем метаданные выбранного блока
+                final_selection_metadata.append({**candidate, "label": label})
+                
+                # Прибавляем "вес" этого блока
+                thinned_idx = candidate["thinned_idx"]
+                total_configs_selected += thinned_configs_metadata[thinned_idx]['sampling_rate']
+                added_in_round = True
+                
+                if total_configs_selected >= num_to_select:
+                    break
+            except StopIteration:
+                # В этом кластере кандидаты закончились
+                continue
+        
+        if not added_in_round:
+            logging.warning("Все релевантные кандидаты исчерпаны.")
+            break
 
+    # 4. Логирование новой метрики
+    log_messages = []
+    selected_by_cluster_for_log = defaultdict(list)
+    for item in final_selection_metadata:
+        selected_by_cluster_for_log[item['label']].append(item['distance'])
+        
+    for label in target_labels:
+        distances = selected_by_cluster_for_log.get(label)
+        if distances:
+            avg_dist = np.mean(distances)
+            count = len(distances)
+            log_messages.append(
+                f"  - Кластер {label}: отобрано {count} блоков. Ср. расстояние до query-центроидов = {avg_dist:.4f}"
+            )
+
+    logging.info("Статистика по отобранным кластерам:\n" + "\n".join(log_messages))
+    
+    # 5. Расширение выборки до полного набора
     final_config_identifiers = []
-    for thinned_idx in final_thinned_indices:
-        meta = thinned_configs_metadata[thinned_idx]
+    for item in final_selection_metadata:
+        meta = thinned_configs_metadata[item['thinned_idx']]
         start_idx = meta['original_start_idx']
         sampling_rate = meta['sampling_rate']
         source_path = meta['original_path']
         
-        # Находим, сколько всего конфигураций в этом файле, чтобы не выйти за границу
-        total_in_file = 0
-        for info in source_datasets_info:
-            if info['path'] == source_path:
-                total_in_file = info['count']
-                break
+        total_in_file = [info['count'] for info in source_datasets_info if info['path'] == source_path][0]
         
-        # Добавляем "адреса" всех конфигураций в блоке
         for i in range(sampling_rate):
             current_idx = start_idx + i
             if current_idx < total_in_file:
@@ -190,9 +186,11 @@ def generate_relevant_dataset(
 
     logging.info(f"Сгенерировано {len(final_config_identifiers)} идентификаторов релевантных конфигураций.")
     
-    # Обрезаем до нужного размера, если выбрали слишком много
+    # Обрезаем до нужного размера
     if len(final_config_identifiers) > num_to_select:
         final_config_identifiers = final_config_identifiers[:num_to_select]
         logging.info(f"Список идентификаторов обрезан до требуемого размера: {len(final_config_identifiers)}.")
-
+        
     return final_config_identifiers, query_fp_raw
+
+

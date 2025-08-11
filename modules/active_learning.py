@@ -50,12 +50,14 @@ def run_active_learning_loop(
         
         if not configs_to_process:
             logging.info("Все query-структуры имеют грейд ниже порога. Перебираем всех по порядку.")
-            configs_to_process.append(validated_queries[query_index_for_md])
+            try:
+                configs_to_process.append(validated_queries[query_index_for_md])
+            except IndexError:
+                logging.info("Все структуры уже обработаны")
+                break
             name = configs_to_process[-1].features.get('name', f"конфигурацию {query_index_for_md}")
             logging.info(f"Выбираем {name}")
             query_index_for_md += 1
-        else:
-            query_index_for_md = 0
             
         # Читаем обновленный файл и выводим грейды в лог
         logging.info("--- Extrapolation Grades для синтетических конфигураций в активном обучении ---")

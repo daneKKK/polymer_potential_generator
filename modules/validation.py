@@ -52,4 +52,4 @@ def calculate_grades(
         logging.error("Stdout:\n" + e.stdout)
         logging.error("Stderr:\n" + e.stderr)
         raise
-    return Configuration.from_file(query_cfg_path)
+    return [cfg for cfg in Configuration.from_file(query_cfg_path) if cfg.features['generation_type'] not in config['active_learning']['ignored_queries']]

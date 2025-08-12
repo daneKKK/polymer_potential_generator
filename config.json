@@ -1,24 +1,39 @@
 {
   "general": {
-    "smiles_polymer": "[*]CC(c1ccccc1)[*]",
-    "output_dir": "./polystyrene_active",
+    "smiles_polymer": "[*]CCO[*]",
+    "output_dir": "./CCO_22_strain",
     "device": "cpu"
   },
   "fingerprinting": {
     "datasets": [
       {
-        "path": "polymers.cfg",
-        "fingerprints_cache": "fps_big.npy",
+        "path": "./datasets/polymers.cfg",
+        "fingerprints_cache": "./datasets/polymers.npy",
         "sampling_rate_N": 10
       },
       {
-        "path": "appended/polystyrene_calculated.cfg",
-        "fingerprints_cache": "appended/polystyrene_calculated.npy",
+        "path": "./datasets/polystyrene.cfg",
+        "fingerprints_cache": "./datasets/polystyrene.npy",
         "sampling_rate_N": 1
       },
       {
-        "path": "appended/polystyrene_ring_calculated.cfg",
-        "fingerprints_cache": "appended/polystyrene_ring_calculated.npy",
+        "path": "./datasets/big_thing.cfg",
+        "fingerprints_cache": "./datasets/big_thing.npy",
+        "sampling_rate_N": 1
+      },
+      {
+        "path": "./datasets/CCO.cfg",
+        "fingerprints_cache": "./datasets/CCO.npy",
+        "sampling_rate_N": 1
+      },
+      {
+        "path": "./datasets/CCO_2.cfg",
+        "fingerprints_cache": "./datasets/CCO_2.npy",
+        "sampling_rate_N": 1
+      },
+      {
+        "path": "./datasets/CCO_3.cfg",
+        "fingerprints_cache": "./datasets/CCO_3.npy",
         "sampling_rate_N": 1
       }
     ],
@@ -29,12 +44,17 @@
   },
   "query_generation": {
     "monomer": true,
-    "rings": [2, 3],
-    "linear": [2, 3, 4]
+    "rings": [2, 3, 4],
+    "linear": [2, 3, 4],
+    "linear_strained": {
+     "linear_sizes": [5, 10, 15],
+     "strain_range": [0.0, 0.11, 0.05],
+     "bond_length": 1.1
+    }
   },
   "selection": {
-    "num_output_configs": 1200,
-    "intra_config_clusters": 3,
+    "num_output_configs": 2400,
+    "intra_config_clusters": 10,
     "umap_params": {
       "n_neighbors": 40,
       "min_dist": 0.1,
@@ -47,16 +67,16 @@
   },
   "mtp_training": {
     "enabled": true,
-    "run_params": "mpirun -n 8",
-    "mtp_executable_path": "/home/daniil/bin/mlp",
-    "initial_potential": "/home/daniil/work/polystyrene/trained.mtp",
+    "run_params": "srun -N 3 -n 72",
+    "mtp_executable_path": "/home/dalekseev/binaries/mlp2",
+    "initial_potential": "/home/dalekseev/generated/potentials/22.mtp",
     "output_potential_name": "trained.mtp",
     "training_command": "train",
     "training_params": {
       "energy-weight": 1.0,
       "force-weight": 0.01,
       "stress-weight": 0.001,
-      "max-iter": 500,
+      "max-iter": 300,
       "bfgs-conv-tol": "1e-3",
       "weighting": "vibrations",
       "skip-preinit": false
@@ -71,7 +91,7 @@
     "smiles_xyz_filename": "query_structures.xyz",
     "save_relevant_xyz": true,
     "relevant_xyz_filename": "relevant_dataset.xyz",
-    "generate_umap_plot": false,
+    "generate_umap_plot": true,
     "umap_plot_filename": "umap_visualization.png",
 	"umap_plot_params": {
       "n_neighbors": 40,
@@ -80,8 +100,10 @@
   },
   "active_learning": {
     "enabled": true,
-    "n_iterations": 10,
-    "calculate_all_at_once": false,
+    "n_iterations": 100,
+    "calculate_all_at_once": true,
+	
+	"ignored_queries": ["linear_strained"],
 
     "thresholds": {
       "md_start": 2.5,
@@ -89,17 +111,17 @@
     },
 
     "md_sampler_config": {
-      "lammps_executable_path": "/home/daniil/bin/lmp_mpi",
-      "run_params": "mpirun -n 1",
+      "lammps_executable_path": "/home/dalekseev/binaries/lmp_mpi",
+      "run_params": "srun -n 1",
       "script_template_path": "lammps.in",
-      "steps": 5000,
+      "steps": 50000,
       "temperature": 300
     },
     
     "ab_initio_config": {
       "suite": "vasp",
-      "executable_path": "/home/daniil/bin/vasp_std",
-      "run_params": "mpirun -n 8",
+      "executable_path": "vasp_std",
+      "run_params": "srun -N 3 -n 72",
       "input_files": {
         "INCAR": "vasptest/INCAR",
         "INCAR_MD": "vasptest/INCAR_MD",

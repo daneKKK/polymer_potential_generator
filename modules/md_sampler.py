@@ -8,7 +8,7 @@ def run_lammps_md_sampling(
     potential_path: str,
     state_als_path: str,
     input_data_path: str,
-    output_dir: str
+    output_dir: str,
 ) -> str:
     """
     Запускает LAMMPS MD с MTP для отбора экстраполяционных конфигураций.

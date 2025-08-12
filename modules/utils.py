@@ -145,23 +145,49 @@ def _generate_ring(polymer_smiles: str, n: int, r_max=5.0) -> Optional[Atoms]:
         logging.error(f"Ошибка при генерации кольца n={n}: {e}", exc_info=True)
         return None
 
-def _generate_strained_linear_oligomer(polymer_smiles: str, n: int, strain: float, bond_buffer: float = 2.0, r_max=8.0) -> Optional[Atoms]:
+def _generate_strained_linear_oligomer(polymer_smiles: str, n: int, strain: float, bond_buffer: float = 2.0, r_max=8.0, _seed=42, _try_number=0) -> Optional[Atoms]:
     """Генерирует 3D структуру для линейного олигомера, растянутого вдоль оси X."""
-    logging.info(f"  -> Генерация растянутой цепи (n={n}, strain={strain:.3f}, bond_buffer={bond_buffer})")
+    if _try_number == 0:
+        logging.info(f"  -> Генерация растянутой цепи (n={n}, strain={strain:.3f}, bond_buffer={bond_buffer})")
 
     monomer_body_smiles = polymer_smiles.replace('[*]', '')
-    chain_smiles = monomer_body_smiles * n
+    monomer_head = polymer_smiles[::-1].replace(']*[','',1)[::-1]
+    monomer_tail = polymer_smiles.replace('[*]', '', 1)
+    monomer_body = polymer_smiles.replace('[*]', '')
+    chain_smiles = monomer_head + monomer_body*(n-2) + monomer_tail
+    
+    MIN_DISTANCE = 1.0
+    MAX_TRIES = 10
+    
+    if _try_number >= MAX_TRIES:
+        logging.error(f"Ошибка при генерации растянутой цепи n={n}, strain={strain}: не получилось сгенерировать линейный конформер")
+        return None
 
     try:
         # 1. Генерация 3D структуры с помощью RDKit
         mol = Chem.MolFromSmiles(chain_smiles)
+        wildcard_polymers = [atom for atom in mol.GetAtoms() if atom.GetAtomicNum() == 0]
+        idx1, idx2 = wildcard_polymers[0].GetIdx(), wildcard_polymers[1].GetIdx()
+        #rw_mol = Chem.RWMol(mol)
+        for wildcard in wildcard_polymers:
+            wildcard.SetAtomicNum(1)
+        mol.UpdatePropertyCache(strict=False)
+        Chem.SanitizeMol(mol)
         mol = Chem.AddHs(mol)
         params = AllChem.ETKDGv3()
-        params.randomSeed = 42
+        params.maxIterations = 200
+        params.randomSeed = _seed
         if AllChem.EmbedMolecule(mol, params) == -1:
             logging.warning(f"Не удалось встроить 3D координаты для цепи n={n}")
             return None
+        
         AllChem.MMFFOptimizeMolecule(mol)
+        rw_mol = Chem.RWMol(mol)
+        
+        rw_mol.RemoveAtom(max(idx1, idx2))
+        rw_mol.RemoveAtom(min(idx1, idx2))
+        mol = rw_mol
+        
         
         # 2. Надёжное определение концов основной цепи
         # Анализируем шаблон мономера, чтобы найти атомы, присоединенные к [*]
@@ -184,11 +210,11 @@ def _generate_strained_linear_oligomer(polymer_smiles: str, n: int, strain: floa
 
         # Определяем индексы конечных атомов в полной молекуле
         first_monomer_map = matches[0]
-        last_monomer_map = matches[-1]
+        last_monomer_map = [match for match in matches if match[0] < match[1]][-1] #такая сложная штука, чтобы удостовериться, что мы получили действительно последний мономер
         
         # Примечание: предполагается, что первый [*] в SMILES - начало, второй - конец
-        end_atom1_idx = first_monomer_map[attachment_indices_in_template[0]]
-        end_atom2_idx = last_monomer_map[attachment_indices_in_template[1]]
+        end_atom1_idx = first_monomer_map[attachment_indices_in_template[0]-1]
+        end_atom2_idx = last_monomer_map[attachment_indices_in_template[1]-1]
 
         # 3. Создание объекта Atoms и ориентация вдоль оси X
         positions = mol.GetConformer().GetPositions()
@@ -198,19 +224,27 @@ def _generate_strained_linear_oligomer(polymer_smiles: str, n: int, strain: floa
 
         main_axis_vector = atoms.positions[end_atom2_idx] - atoms.positions[end_atom1_idx]
         
-        R = rotation_matrix_from_points(main_axis_vector, (1, 0, 0))
-        atoms.rotate(R, center='COM')
+        atoms.rotate(main_axis_vector, (1, 0, 0), center='COM')
         
         # 4. Установка периодической ячейки
         min_coords = np.min(atoms.positions, axis=0)
         max_coords = np.max(atoms.positions, axis=0)
         cell_dims = max_coords - min_coords
-        cell_x = cell_dims[0] + bond_buffer # Используем настраиваемый буфер
+        #cell_x = cell_dims[0] + bond_buffer # Используем настраиваемый буфер
+        cell_x = (atoms.positions[end_atom2_idx] - atoms.positions[end_atom1_idx])[0] + bond_buffer
         cell_y = cell_dims[1] + 2 * r_max
         cell_z = cell_dims[2] + 2 * r_max
         atoms.set_cell([cell_x, cell_y, cell_z])
         atoms.set_pbc([True, False, False])
-        atoms.center(about=(0,0,0))
+        atoms.center(about=(0, cell_y / 2, cell_z / 2))
+        
+        distances = atoms.get_all_distances(mic=True)
+        mask = np.ones(distances.shape, dtype=bool)
+        np.fill_diagonal(mask, 0)
+        min_distance_observed = distances[mask].min()
+        
+        if min_distance_observed < MIN_DISTANCE:
+            return _generate_strained_linear_oligomer(polymer_smiles, n, strain, bond_buffer, r_max, _seed+1, _try_number+1)
 
         # 5. Применение растяжения
         original_positions = atoms.get_positions()

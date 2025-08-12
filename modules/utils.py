@@ -3,6 +3,8 @@ import re
 import numpy as np
 from typing import List, Dict, Optional
 from ase import Atoms
+from ase.build.rotate import rotation_matrix_from_points
+#from ase.geometry import get_rotation_matrix
 from rdkit import Chem
 from rdkit.Chem import AllChem
 
@@ -143,6 +145,109 @@ def _generate_ring(polymer_smiles: str, n: int, r_max=5.0) -> Optional[Atoms]:
         logging.error(f"Ошибка при генерации кольца n={n}: {e}", exc_info=True)
         return None
 
+def _generate_strained_linear_oligomer(polymer_smiles: str, n: int, strain: float, bond_buffer: float = 2.0, r_max=8.0) -> Optional[Atoms]:
+    """Генерирует 3D структуру для линейного олигомера, растянутого вдоль оси X."""
+    logging.info(f"  -> Генерация растянутой цепи (n={n}, strain={strain:.3f}, bond_buffer={bond_buffer})")
+
+    monomer_body_smiles = polymer_smiles.replace('[*]', '')
+    chain_smiles = monomer_body_smiles * n
+
+    try:
+        # 1. Генерация 3D структуры с помощью RDKit
+        mol = Chem.MolFromSmiles(chain_smiles)
+        mol = Chem.AddHs(mol)
+        params = AllChem.ETKDGv3()
+        params.randomSeed = 42
+        if AllChem.EmbedMolecule(mol, params) == -1:
+            logging.warning(f"Не удалось встроить 3D координаты для цепи n={n}")
+            return None
+        AllChem.MMFFOptimizeMolecule(mol)
+        
+        # 2. Надёжное определение концов основной цепи
+        # Анализируем шаблон мономера, чтобы найти атомы, присоединенные к [*]
+        mol_template = Chem.MolFromSmiles(polymer_smiles)
+        wildcards = [a for a in mol_template.GetAtoms() if a.GetAtomicNum() == 0]
+        if len(wildcards) != 2:
+            logging.error("Шаблон SMILES должен содержать ровно 2 [*].")
+            return None
+        
+        # Индексы "атомов сшивки" в рамках шаблона мономера
+        attachment_indices_in_template = [w.GetNeighbors()[0].GetIdx() for w in wildcards]
+        
+        # Находим все вхождения мономера в длинную цепь
+        mol_monomer_body = Chem.MolFromSmiles(monomer_body_smiles)
+        matches = mol.GetSubstructMatches(mol_monomer_body, uniquify=False)
+        
+        if len(matches) < n:
+            logging.error(f"Не удалось найти {n} мономеров в цепи. Найдено {len(matches)}.")
+            return None
+
+        # Определяем индексы конечных атомов в полной молекуле
+        first_monomer_map = matches[0]
+        last_monomer_map = matches[-1]
+        
+        # Примечание: предполагается, что первый [*] в SMILES - начало, второй - конец
+        end_atom1_idx = first_monomer_map[attachment_indices_in_template[0]]
+        end_atom2_idx = last_monomer_map[attachment_indices_in_template[1]]
+
+        # 3. Создание объекта Atoms и ориентация вдоль оси X
+        positions = mol.GetConformer().GetPositions()
+        symbols = [atom.GetSymbol() for atom in mol.GetAtoms()]
+        atoms = Atoms(symbols=symbols, positions=positions)
+        atoms.center()
+
+        main_axis_vector = atoms.positions[end_atom2_idx] - atoms.positions[end_atom1_idx]
+        
+        R = rotation_matrix_from_points(main_axis_vector, (1, 0, 0))
+        atoms.rotate(R, center='COM')
+        
+        # 4. Установка периодической ячейки
+        min_coords = np.min(atoms.positions, axis=0)
+        max_coords = np.max(atoms.positions, axis=0)
+        cell_dims = max_coords - min_coords
+        cell_x = cell_dims[0] + bond_buffer # Используем настраиваемый буфер
+        cell_y = cell_dims[1] + 2 * r_max
+        cell_z = cell_dims[2] + 2 * r_max
+        atoms.set_cell([cell_x, cell_y, cell_z])
+        atoms.set_pbc([True, False, False])
+        atoms.center(about=(0,0,0))
+
+        # 5. Применение растяжения
+        original_positions = atoms.get_positions()
+        new_positions = original_positions.copy()
+        h_bond_map = {h.GetIdx(): h.GetNeighbors()[0].GetIdx() for h in mol.GetAtoms() if h.GetSymbol() == 'H'}
+        heavy_atom_indices = [atom.GetIdx() for atom in mol.GetAtoms() if atom.GetSymbol() != 'H']
+        heavy_displacements = {}
+
+        for idx in heavy_atom_indices:
+            orig_pos = original_positions[idx]
+            new_pos = np.array([orig_pos[0] * (1 + strain), orig_pos[1], orig_pos[2]])
+            new_positions[idx] = new_pos
+            heavy_displacements[idx] = new_pos - orig_pos
+        
+        for h_idx, heavy_idx in h_bond_map.items():
+            if heavy_idx in heavy_displacements:
+                new_positions[h_idx] = original_positions[h_idx] + heavy_displacements[heavy_idx]
+
+        # 6. Создание финального объекта Atoms
+        strained_atoms = atoms.copy()
+        strained_atoms.set_positions(new_positions)
+        new_cell = strained_atoms.get_cell()
+        new_cell[0, 0] *= (1 + strain)
+        strained_atoms.set_cell(new_cell, scale_atoms=False)
+        strained_atoms.wrap()
+
+        strained_atoms.info['name'] = f'linear_strained_n{n}_s{strain:.3f}'
+        strained_atoms.info['generation_type'] = 'linear_strained'
+        strained_atoms.info['length'] = n
+        strained_atoms.info['strain'] = strain
+        
+        return strained_atoms
+
+    except Exception as e:
+        logging.error(f"Ошибка при генерации растянутой цепи n={n}, strain={strain}: {e}", exc_info=True)
+        return None
+
 def smiles_to_ase_atoms(polymer_smiles: str, generation_config: Dict) -> List[Atoms]:
     """
     Главная функция-диспетчер для генерации синтетических структур по конфигу.
@@ -171,5 +276,30 @@ def smiles_to_ase_atoms(polymer_smiles: str, generation_config: Dict) -> List[At
                 continue
             linear_atoms = _generate_linear_oligomer(polymer_smiles, n)
             if linear_atoms: ase_atoms_list.append(linear_atoms)
+
+    if "linear_strained" in generation_config:
+        ls_config = generation_config["linear_strained"]
+        linear_sizes = ls_config.get("linear_sizes", [])
+        strain_params = ls_config.get("strain_range", [])
+        # <<< ИЗМЕНЕНИЕ ЗДЕСЬ: считываем новый параметр bond_length >>>
+        bond_buffer = ls_config.get("bond_length", 2.0) # По умолчанию 2.0 Ангстрем
+
+        if not linear_sizes:
+            logging.warning("В 'linear_strained' отсутствует или пуст ключ 'linear_sizes'.")
+        if len(strain_params) != 3:
+            logging.warning(f"Ключ 'strain_range' должен содержать 3 элемента [min, max, step]. Получено: {strain_params}")
+        else:
+            strains = np.arange(strain_params[0], strain_params[1], strain_params[2])
+            for n in linear_sizes:
+                if n < 2:
+                    logging.warning(f"Длина растягиваемой цепи n={n} некорректна (< 2). Пропуск.")
+                    continue
+                for strain_val in strains:
+                    # <<< ИЗМЕНЕНИЕ ЗДЕСЬ: передаем bond_buffer в функцию >>>
+                    strained_atoms = _generate_strained_linear_oligomer(
+                        polymer_smiles, n, strain_val, bond_buffer=bond_buffer
+                    )
+                    if strained_atoms:
+                        ase_atoms_list.append(strained_atoms)
             
     return ase_atoms_list

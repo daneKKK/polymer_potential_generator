@@ -49,15 +49,20 @@ def run_active_learning_loop(
         
         
         if not configs_to_process:
-            logging.info("Все query-структуры имеют грейд ниже порога. Перебираем всех по порядку.")
-            try:
-                configs_to_process.append(validated_queries[query_index_for_md])
-            except IndexError:
-                logging.info("Все структуры уже обработаны")
-                break
-            name = configs_to_process[-1].features.get('name', f"конфигурацию {query_index_for_md}")
-            logging.info(f"Выбираем {name}")
-            query_index_for_md += 1
+            if not al_config['calculate_all_at_once']:
+                logging.info("Все query-структуры имеют грейд ниже порога. Перебираем всех по порядку.")
+                try:
+                    configs_to_process.append(validated_queries[query_index_for_md])
+                except IndexError:
+                    logging.info("Все структуры уже обработаны")
+                    break
+                name = configs_to_process[-1].features.get('name', f"конфигурацию {query_index_for_md}")
+                logging.info(f"Выбираем {name}")
+                query_index_for_md += 1
+            else:
+                logging.info("Все query-структуры имеют грейд ниже порога. Посчитаем МД для них всех.")
+                configs_to_process.extend(validated_queries)
+                query_index_for_md += len(validated_queries)
             
         # Читаем обновленный файл и выводим грейды в лог
         logging.info("--- Extrapolation Grades для синтетических конфигураций в активном обучении ---")
@@ -72,6 +77,8 @@ def run_active_learning_loop(
         
         if not al_config['calculate_all_at_once']:
             configs_to_process = configs_to_process[:1] # Берем только одного, самого "плохого"
+        else:
+            
         
         logging.info(f"На этой итерации будут обработаны {len(configs_to_process)} query-структуры.")
         
@@ -105,7 +112,7 @@ def run_active_learning_loop(
         # 5. Обновляем датасет и переобучаем потенциал
         if not new_ab_initio_configs:
             logging.info("Ни одной новой конфигурации не было посчитано на этой итерации.")
-            if query_index_for_md == len(validated_queries):
+            if query_index_for_md >= len(validated_queries):
                 logging.info("Все query конфигурации перебраны с помощью МД, согласно критерию D-оптимальности датасет достаточно полон.")
                 break
             else:

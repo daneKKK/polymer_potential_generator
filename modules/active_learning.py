@@ -95,7 +95,7 @@ def run_active_learning_loop(
             ase.io.write(single_data_path, ase_data, format='lammps-data', masses=True)
             
             # Запускаем MD-сэмплинг
-            preselected_path = run_lammps_md_sampling(config, current_potential_path, state_als_path, single_data_path, run_dir)
+            preselected_path = run_lammps_md_sampling(config, current_potential_path, state_als_path, [single_data_path], [run_dir])[0]
             
             if preselected_path:
                 # Запускаем select-add

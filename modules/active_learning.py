@@ -77,7 +77,6 @@ def run_active_learning_loop(
         
         if not al_config['calculate_all_at_once']:
             configs_to_process = configs_to_process[:1] # Берем только одного, самого "плохого"
-        else:
             
         
         logging.info(f"На этой итерации будут обработаны {len(configs_to_process)} query-структуры.")

@@ -23,99 +23,127 @@ def run_active_learning_loop(
     """
     al_config = config['active_learning']
     output_dir = config['general']['output_dir']
+    md_sampler_config = al_config.get('md_sampler_config', {})
+    max_parallel_processes = md_sampler_config.get('max_parallel_processes', 1)
     
     current_train_path = initial_train_path
     current_potential_path = initial_potential_path
-    
-    query_index_for_md = 0
-
+   
     for i in range(al_config['n_iterations']):
         iter_num = i + 1
         logging.info(f"\n{'='*20} АКТИВНОЕ ОБУЧЕНИЕ: ИТЕРАЦИЯ {iter_num} {'='*20}")
         iter_dir = os.path.join(output_dir, f"iter_{iter_num:03d}")
         os.makedirs(iter_dir, exist_ok=True)
-        
+
         # 1. Валидация query-структур с текущим потенциалом
         state_als_path = os.path.join(iter_dir, "state.als")
         validated_queries = calculate_grades(config, current_potential_path, current_train_path, query_cfg_path, state_als_path)
         
-        # 2. Определяем, нужно ли запускать AL
-        configs_to_process = []
+        # Добавляем grade в объект для удобства
         for cfg in validated_queries:
-            grade = float(cfg.features.get('MV_grade', 0.0))
-            cfg.grade = grade # для удобства
-            if grade >= al_config['thresholds']['md_start']:
-                configs_to_process.append(cfg)
+            cfg.grade = float(cfg.features.get('MV_grade', 0.0))
         
+        # 2. Распределение задач для MD-сэмплинга
+        runs_to_start = [] # Список кортежей (конфигурация, индекс запуска)
         
-        if not configs_to_process:
-            if not al_config['calculate_all_at_once']:
-                logging.info("Все query-структуры имеют грейд ниже порога. Перебираем всех по порядку.")
-                try:
-                    configs_to_process.append(validated_queries[query_index_for_md])
-                except IndexError:
-                    logging.info("Все структуры уже обработаны")
-                    break
-                name = configs_to_process[-1].features.get('name', f"конфигурацию {query_index_for_md}")
-                logging.info(f"Выбираем {name}")
-                query_index_for_md += 1
-            else:
-                logging.info("Все query-структуры имеют грейд ниже порога. Посчитаем МД для них всех.")
-                configs_to_process.extend(validated_queries)
-                query_index_for_md += len(validated_queries)
-            
-        # Читаем обновленный файл и выводим грейды в лог
-        logging.info("--- Extrapolation Grades для синтетических конфигураций в активном обучении ---")
-        for i, cfg in enumerate(configs_to_process):
-            grade = cfg.features.get('MV_grade', 'N/A')
-            name = cfg.features.get('name', f'Конфигурация {i}')
-            logging.info(f"  - Структура: {name} | Grade: {grade}")
-        logging.info("-----------------------------------------------------")
-            
-        # 3. Сортируем кандидатов: сначала те, что > md_break, затем те, что > md_start
-        configs_to_process.sort(key=lambda c: (c.grade >= al_config['thresholds']['md_break'], c.grade >= al_config['thresholds']['md_start']), reverse=True)
+        # Сортируем по грейду для стабильности
+        validated_queries.sort(key=lambda c: c.grade, reverse=True)
+
+        # Разделяем конфигурации по грейдам
+        ab_initio_candidates = [c for c in validated_queries if c.grade >= al_config['thresholds']['md_break']]
+        md_candidates = [c for c in validated_queries if al_config['thresholds']['md_start'] <= c.grade < al_config['thresholds']['md_break']]
+
+        logging.info("--- Распределение MD задач ---")
+        if ab_initio_candidates or md_candidates:
+            # Сценарий 1 и 2
+            processes_left = max_parallel_processes
+            # Вариант 1: кандидаты > md_break. Всегда запускаются по одному разу.
+            for cfg in ab_initio_candidates:
+                if processes_left > 0:
+                    runs_to_start.append((cfg, 0)) # 0 - индекс запуска
+                    processes_left -= 1
+            logging.info(f"Запланировано {len(runs_to_start)} запусков для конфигураций с грейдом > {al_config['thresholds']['md_break']}.")
+
+            # Вариант 2: кандидаты > md_start. Делим между ними оставшиеся процессы.
+            if md_candidates and processes_left > 0:
+                n_md_cand = len(md_candidates)
+                base_runs_per_cand = processes_left // n_md_cand
+                extra_runs = processes_left % n_md_cand
+                
+                logging.info(f"Распределяем {processes_left} процессов между {n_md_cand} MD-кандидатами.")
+
+                for idx, cfg in enumerate(md_candidates):
+                    num_runs = base_runs_per_cand + (1 if idx < extra_runs else 0)
+                    for run_idx in range(num_runs):
+                        runs_to_start.append((cfg, run_idx))
+        else:
+            # Сценарий 3: ни у кого нет грейда > md_start. Делим процессы между всеми.
+            if validated_queries and max_parallel_processes > 0:
+                n_queries = len(validated_queries)
+                base_runs_per_query = max_parallel_processes // n_queries
+                extra_runs = max_parallel_processes % n_queries
+                logging.info(f"Ни одна конфигурация не превысила порог {al_config['thresholds']['md_start']}. Распределяем {max_parallel_processes} процессов между всеми {n_queries} конфигурациями.")
+
+                for idx, cfg in enumerate(validated_queries):
+                    num_runs = base_runs_per_query + (1 if idx < extra_runs else 0)
+                    for run_idx in range(num_runs):
+                        runs_to_start.append((cfg, run_idx))
+
+        if not runs_to_start:
+            logging.info("Нет конфигураций для запуска MD-сэмплинга на этой итерации. Цикл завершен.")
+            break
         
-        if not al_config['calculate_all_at_once']:
-            configs_to_process = configs_to_process[:1] # Берем только одного, самого "плохого"
-            
+        logging.info(f"Всего будет запущено {len(runs_to_start)} MD-симуляций.")
+        logging.info("---------------------------------")
         
-        logging.info(f"На этой итерации будут обработаны {len(configs_to_process)} query-структуры.")
+        # 3. Подготовка и запуск MD для всех запланированных задач
+        input_data_paths = []
+        output_dirs = []
         
-        # 4. Основной цикл MD -> select -> ab initio для каждого кандидата
-        new_ab_initio_configs = []
-        for cfg_to_run in configs_to_process:
+        for cfg_to_run, run_idx in runs_to_start:
             run_name = cfg_to_run.features.get('name', 'unknown').replace('/', '_')
-            run_dir = os.path.join(iter_dir, run_name)
+            # Создаем уникальную директорию для каждого запуска
+            run_dir = os.path.join(iter_dir, f"{run_name}_run{run_idx}")
             os.makedirs(run_dir, exist_ok=True)
-            logging.info(f"Обработка конфигурации {run_name} по адресу {run_dir}")
             
-            # Копируем .cfg файл этого кандидата для LAMMPS
             ase_data = cfg_to_run.to_ase(type_map)
             single_data_path = os.path.join(run_dir, "start.data")
             ase.io.write(single_data_path, ase_data, format='lammps-data', masses=True)
             
-            # Запускаем MD-сэмплинг
-            preselected_path = run_lammps_md_sampling(config, current_potential_path, state_als_path, [single_data_path], [run_dir])[0]
+            input_data_paths.append(single_data_path)
+            output_dirs.append(run_dir)
+
+        preselected_paths = run_lammps_md_sampling(
+            config, current_potential_path, state_als_path, input_data_paths, output_dirs
+        )
+        
+        new_ab_initio_configs = []
+        if preselected_paths:
+            # Объединяем все preselected.cfg в один файл для select-add
+            all_preselected_path = os.path.join(iter_dir, "all_preselected.cfg")
+            with open(all_preselected_path, 'wb') as outfile:
+                for fname in preselected_paths:
+                    with open(fname, 'rb') as infile:
+                        shutil.copyfileobj(infile, outfile)
+
+            # Запускаем select-add один раз на объединенном файле
+            selected_path = os.path.join(iter_dir, "selected.cfg")
+            select_cmd = f"{config['mtp_training']['mtp_executable_path']} select-add {current_potential_path} {current_train_path} {all_preselected_path} {selected_path}"
+            logging.info(f"Запуск select-add: {select_cmd}")
+            subprocess.run(select_cmd, shell=True, check=True)
             
-            if preselected_path:
-                # Запускаем select-add
-                selected_path = os.path.join(run_dir, "selected.cfg")
-                select_cmd = f"{config['mtp_training']['mtp_executable_path']} select-add {current_potential_path} {current_train_path} {preselected_path} {selected_path}"
-                subprocess.run(select_cmd, shell=True, check=True)
-                
-                # Запускаем ab initio расчет
+            # Запускаем ab initio расчет для новых выделенных конфигураций
+            if os.path.exists(selected_path) and os.path.getsize(selected_path) > 0:
                 configs_for_vasp = Configuration.from_file(selected_path)
-                vasp_results = run_vasp_calculations(configs_for_vasp, config, run_dir)
+                # Директория для VASP расчетов
+                vasp_dir = os.path.join(iter_dir, "vasp_calculations")
+                vasp_results = run_vasp_calculations(configs_for_vasp, config, vasp_dir)
                 new_ab_initio_configs.extend(vasp_results)
         
-        # 5. Обновляем датасет и переобучаем потенциал
+        # 4. Обновляем датасет и переобучаем потенциал
         if not new_ab_initio_configs:
-            logging.info("Ни одной новой конфигурации не было посчитано на этой итерации.")
-            if query_index_for_md >= len(validated_queries):
-                logging.info("Все query конфигурации перебраны с помощью МД, согласно критерию D-оптимальности датасет достаточно полон.")
-                break
-            else:
-                continue
+            logging.info("Ни одной новой конфигурации не было посчитано на этой итерации. Переход к следующей итерации.")
+            continue
             
         logging.info(f"Добавление {len(new_ab_initio_configs)} новых конфигураций в обучающий датасет.")
         
@@ -131,7 +159,7 @@ def run_active_learning_loop(
         # Переобучаем потенциал
         next_potential_path = os.path.join(os.path.basename(iter_dir), "trained.mtp")
         config['mtp_training']["initial_potential"] = os.path.join(output_dir, config['mtp_training']['output_potential_name'])
-        config['mtp_training']['output_potential_name'] = next_potential_path # обновляем имя для train_mtp
+        config['mtp_training']['output_potential_name'] = next_potential_path 
         train_mtp(config, next_train_path)
 
         # Обновляем пути для следующей итерации
@@ -139,4 +167,4 @@ def run_active_learning_loop(
         current_potential_path = os.path.join(output_dir, next_potential_path)
         config['mtp_training']["initial_potential"] = current_potential_path
 
-    logging.info("Цикл активного обучения завершен.")
+    logging.info("Цикл активного обучения завершен.") 

@@ -44,11 +44,11 @@
   },
   "query_generation": {
     "monomer": true,
-    "rings": [2, 3, 4],
-    "linear": [2, 3, 4],
+    "rings": [2, 4],
+    "linear": [2, 4],
     "linear_strained": {
-     "linear_sizes": [5, 10, 15],
-     "strain_range": [0.0, 0.11, 0.05],
+     "linear_sizes": [],
+     "strain_range": [0.0, 0.21, 0.05],
      "bond_length": 1.1
     }
   },
@@ -66,17 +66,17 @@
     }
   },
   "mtp_training": {
-    "enabled": true,
+    "enabled": false,
     "run_params": "srun -N 3 -n 72",
     "mtp_executable_path": "/home/dalekseev/binaries/mlp2",
-    "initial_potential": "/home/dalekseev/generated/potentials/22.mtp",
+    "initial_potential": "/home/dalekseev/generated/potentials/22_CCO.mtp",
     "output_potential_name": "trained.mtp",
     "training_command": "train",
     "training_params": {
       "energy-weight": 1.0,
       "force-weight": 0.01,
       "stress-weight": 0.001,
-      "max-iter": 300,
+      "max-iter": 100,
       "bfgs-conv-tol": "1e-3",
       "weighting": "vibrations",
       "skip-preinit": false
@@ -91,7 +91,7 @@
     "smiles_xyz_filename": "query_structures.xyz",
     "save_relevant_xyz": true,
     "relevant_xyz_filename": "relevant_dataset.xyz",
-    "generate_umap_plot": true,
+    "generate_umap_plot": false,
     "umap_plot_filename": "umap_visualization.png",
 	"umap_plot_params": {
       "n_neighbors": 40,
@@ -101,9 +101,8 @@
   "active_learning": {
     "enabled": true,
     "n_iterations": 100,
-    "calculate_all_at_once": true,
-	
-	"ignored_queries": ["linear_strained"],
+    "calculate_all_at_once": true,	
+    "ignored_queries": ["linear_strained"],
 
     "thresholds": {
       "md_start": 2.5,
@@ -112,10 +111,11 @@
 
     "md_sampler_config": {
       "lammps_executable_path": "/home/dalekseev/binaries/lmp_mpi",
-      "run_params": "srun -n 1",
+      "run_params": "srun --exact -n 1",
       "script_template_path": "lammps.in",
-      "steps": 50000,
-      "temperature": 300
+      "steps": 2000,
+      "temperature": 300,
+      "max_parallel_processes": 50
     },
     
     "ab_initio_config": {

@@ -72,46 +72,15 @@ def run_lammps_md_sampling(
         process = subprocess.Popen(command, shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, cwd=output_dir)
         processes.append({'process': process, 'output_dir': output_dir})
 
-        # Если достигли лимита параллельных процессов, ждем завершения одного из них
-        if len(processes) >= max_processes:
-            # Эта конструкция ждет, пока хотя бы один процесс не завершится
-            while True:
-                for p_info in processes:
-                    if p_info['process'].poll() is not None: # Процесс завершился
-                        break
-                else: # Ни один процесс не завершился, ждем и пробуем снова
-                    time.sleep(1)
-                    continue
-                break # Выходим из while, т.к. нашли завершенный процесс
-            
-            # Собираем все завершенные процессы
-            finished_processes = [p for p in processes if p['process'].poll() is not None]
-            for p_info in finished_processes:
-                logging.info(f"Процесс LAMMPS в {p_info['output_dir']} завершился.")
-                stdout, stderr = p_info['process'].communicate()
-                logging.info(f"STDOUT from {p_info['output_dir']}:\n{stdout}")
-
-                if p_info['process'].returncode != 0:
-                    logging.warning(f"LAMMPS в {p_info['output_dir']} завершился с ненулевым кодом {p_info['process'].returncode}!")
-                    logging.warning(f"STDERR from {p_info['output_dir']}:\n{stderr}")
-                
-                preselected_path = os.path.join(p_info['output_dir'], "preselected.cfg")
-                if os.path.exists(preselected_path) and os.path.getsize(preselected_path) > 0:
-                    logging.info(f"Найдены экстраполяционные конфигурации в {preselected_path}")
-                    successful_preselected_paths.append(preselected_path)
-            
-            # Обновляем список, оставляя только активные процессы
-            processes = [p for p in processes if p['process'].poll() is None]
-
     # Ждем завершения оставшихся процессов
     for p_info in processes:
         p_info['process'].wait()
         logging.info(f"Процесс LAMMPS в {p_info['output_dir']} завершился.")
         stdout, stderr = p_info['process'].communicate()
-        logging.info(f"STDOUT from {p_info['output_dir']}:\n{stdout}")
+        #logging.info(f"STDOUT from {p_info['output_dir']}:\n{stdout}")
         if p_info['process'].returncode != 0:
             logging.warning(f"LAMMPS в {p_info['output_dir']} завершился с ненулевым кодом {p_info['process'].returncode}!")
-            logging.warning(f"STDERR from {p_info['output_dir']}:\n{stderr}")
+            #logging.warning(f"STDERR from {p_info['output_dir']}:\n{stderr}")
         
         preselected_path = os.path.join(p_info['output_dir'], "preselected.cfg")
         if os.path.exists(preselected_path) and os.path.getsize(preselected_path) > 0:

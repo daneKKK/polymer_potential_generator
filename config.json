@@ -1,7 +1,7 @@
 {
   "general": {
     "smiles_polymer": "[*]CCO[*]",
-    "output_dir": "./CCO_22_strain",
+    "output_dir": "./CCO_22_0816",
     "device": "cpu"
   },
   "fingerprinting": {
@@ -35,6 +35,11 @@
         "path": "./datasets/CCO_3.cfg",
         "fingerprints_cache": "./datasets/CCO_3.npy",
         "sampling_rate_N": 1
+      },
+      {
+        "path": "./datasets/CCO_4.cfg",
+        "fingerprints_cache": "./datasets/CCO_4.npy",
+        "sampling_rate_N": 1
       }
     ],
     "mace_model_path": "2023-12-03-mace-mp.model",
@@ -47,14 +52,14 @@
     "rings": [2, 4],
     "linear": [2, 4],
     "linear_strained": {
-     "linear_sizes": [],
+     "linear_sizes": [6],
      "strain_range": [0.0, 0.21, 0.05],
-     "bond_length": 1.1
+     "bond_length": 1.43
     }
   },
   "selection": {
     "num_output_configs": 2400,
-    "intra_config_clusters": 10,
+    "intra_config_clusters": 15,
     "umap_params": {
       "n_neighbors": 40,
       "min_dist": 0.1,
@@ -66,7 +71,7 @@
     }
   },
   "mtp_training": {
-    "enabled": false,
+    "enabled": true,
     "run_params": "srun -N 3 -n 72",
     "mtp_executable_path": "/home/dalekseev/binaries/mlp2",
     "initial_potential": "/home/dalekseev/generated/potentials/22_CCO.mtp",
@@ -74,9 +79,9 @@
     "training_command": "train",
     "training_params": {
       "energy-weight": 1.0,
-      "force-weight": 0.01,
+      "force-weight": 0.03,
       "stress-weight": 0.001,
-      "max-iter": 100,
+      "max-iter": 400,
       "bfgs-conv-tol": "1e-3",
       "weighting": "vibrations",
       "skip-preinit": false
@@ -102,20 +107,19 @@
     "enabled": true,
     "n_iterations": 100,
     "calculate_all_at_once": true,	
-    "ignored_queries": ["linear_strained"],
-
+    "ignored_queries": ["ring"],
     "thresholds": {
       "md_start": 2.5,
-      "md_break": 10.0
+      "md_break": 4.0
     },
 
     "md_sampler_config": {
       "lammps_executable_path": "/home/dalekseev/binaries/lmp_mpi",
       "run_params": "srun --exact -n 1",
       "script_template_path": "lammps.in",
-      "steps": 2000,
+      "steps": 20000,
       "temperature": 300,
-      "max_parallel_processes": 50
+      "max_parallel_processes": 12
     },
     
     "ab_initio_config": {

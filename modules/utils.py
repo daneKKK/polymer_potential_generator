@@ -271,10 +271,11 @@ def _generate_strained_linear_oligomer(polymer_smiles: str, n: int, strain: floa
         strained_atoms.set_cell(new_cell, scale_atoms=False)
         strained_atoms.wrap()
 
-        strained_atoms.info['name'] = f'linear_strained_n{n}_s{strain:.3f}'
+        strained_atoms.info['name'] = f'linear_strained_n{n}_s{strain:.3f}_b{bond_buffer:.2f}'
         strained_atoms.info['generation_type'] = 'linear_strained'
         strained_atoms.info['length'] = n
         strained_atoms.info['strain'] = strain
+        strained_atoms.info['bond_length'] = bond_buffer
         
         return strained_atoms
 
@@ -316,10 +317,12 @@ def smiles_to_ase_atoms(polymer_smiles: str, generation_config: Dict) -> List[At
         linear_sizes = ls_config.get("linear_sizes", [])
         strain_params = ls_config.get("strain_range", [])
         # <<< ИЗМЕНЕНИЕ ЗДЕСЬ: считываем новый параметр bond_length >>>
-        bond_buffer = ls_config.get("bond_length", 2.0) # По умолчанию 2.0 Ангстрем
+        bond_buffers = ls_config.get("bond_lengths", [2.0]) # По умолчанию 2.0 Ангстрем
 
         if not linear_sizes:
             logging.warning("В 'linear_strained' отсутствует или пуст ключ 'linear_sizes'.")
+        if not bond_lengths:
+            logging.warning("В 'linear_strained' отсутствует или пуст ключ 'bond_lengths'. Ставим 2.0 по умолчанию. ")
         if len(strain_params) != 3:
             logging.warning(f"Ключ 'strain_range' должен содержать 3 элемента [min, max, step]. Получено: {strain_params}")
         else:
@@ -329,11 +332,12 @@ def smiles_to_ase_atoms(polymer_smiles: str, generation_config: Dict) -> List[At
                     logging.warning(f"Длина растягиваемой цепи n={n} некорректна (< 2). Пропуск.")
                     continue
                 for strain_val in strains:
+                    for bond_buffer in bond_buffers:
                     # <<< ИЗМЕНЕНИЕ ЗДЕСЬ: передаем bond_buffer в функцию >>>
-                    strained_atoms = _generate_strained_linear_oligomer(
-                        polymer_smiles, n, strain_val, bond_buffer=bond_buffer
-                    )
-                    if strained_atoms:
-                        ase_atoms_list.append(strained_atoms)
+                        strained_atoms = _generate_strained_linear_oligomer(
+                            polymer_smiles, n, strain_val, bond_buffer=bond_buffer
+                        )
+                        if strained_atoms:
+                            ase_atoms_list.append(strained_atoms)
             
     return ase_atoms_list

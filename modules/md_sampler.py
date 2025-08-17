@@ -48,6 +48,7 @@ def run_lammps_md_sampling(
             f.write("select TRUE\n")
             f.write(f"select:load-state {os.path.abspath(state_als_path)}\n")
             f.write(f"select:threshold {thresholds['md_start']}\n")
+            f.write(f"write-cfgs:skip 9\n")
             f.write(f"select:threshold-break {thresholds['md_break']}\n")
             f.write(f"select:save-selected preselected.cfg\n")
         logging.info(f"Создан файл настроек mlip.ini: {mlip_ini_path}")

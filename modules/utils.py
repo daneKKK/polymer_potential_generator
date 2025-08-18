@@ -157,7 +157,7 @@ def _generate_strained_linear_oligomer(polymer_smiles: str, n: int, strain: floa
     chain_smiles = monomer_head + monomer_body*(n-2) + monomer_tail
     
     MIN_DISTANCE = 1.0
-    MAX_TRIES = 10
+    MAX_TRIES = 100
     
     if _try_number >= MAX_TRIES:
         logging.error(f"Ошибка при генерации растянутой цепи n={n}, strain={strain}: не получилось сгенерировать линейный конформер")
@@ -244,6 +244,7 @@ def _generate_strained_linear_oligomer(polymer_smiles: str, n: int, strain: floa
         min_distance_observed = distances[mask].min()
         
         if min_distance_observed < MIN_DISTANCE:
+            logging.info(f"Попытка {_try_number} сгенерировать конформер не удалась. Минимальное расстояние - {min_distance_observed:.3f}")
             return _generate_strained_linear_oligomer(polymer_smiles, n, strain, bond_buffer, r_max, _seed+1, _try_number+1)
 
         # 5. Применение растяжения
@@ -321,7 +322,7 @@ def smiles_to_ase_atoms(polymer_smiles: str, generation_config: Dict) -> List[At
 
         if not linear_sizes:
             logging.warning("В 'linear_strained' отсутствует или пуст ключ 'linear_sizes'.")
-        if not bond_lengths:
+        if not bond_buffers:
             logging.warning("В 'linear_strained' отсутствует или пуст ключ 'bond_lengths'. Ставим 2.0 по умолчанию. ")
         if len(strain_params) != 3:
             logging.warning(f"Ключ 'strain_range' должен содержать 3 элемента [min, max, step]. Получено: {strain_params}")

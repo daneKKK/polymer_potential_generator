@@ -1,0 +1,49 @@
+{
+  "general": {
+    "smiles_polymer": "[*]CCO[*]",
+    "output_dir": "./CCO_stress_strain_min",
+    "device": "cpu"
+  },
+  "potential": {
+    "mtp_potential_path": "/home/dalekseev/generated/potentials/22_CCO_strain.mtp"
+  },
+  "query_generation": {
+    "linear_strained": {
+      "linear_sizes": [6],
+      "strain_range": [0.0, 0.51, 0.025],
+      "bond_lengths": [1.43]
+    }
+  },
+  "lammps_config": {
+    "lammps_executable_path": "/home/dalekseev/binaries/lmp_mpi",
+    "run_params": "srun --exact -n 1",
+    "temperature": 300,
+    "md_steps": 20000,
+    "timestep": 0.001,
+    "thermo_average_last_n_steps": 5000,
+    "max_parallel_processes": 72
+  },
+  "ab_initio_config": {
+    "enabled": true,
+    "suite": "vasp",
+    "executable_path": "vasp_std",
+    "run_params": "srun -N 3 -n 72",
+    "type_map_cfg_to_symbol": {
+      "0": "C", "1": "H", "2": "O"
+    },
+    "input_files": {
+      "INCAR_MD": "vasptest/INCAR_MIN",
+      "KPOINTS": "vasptest/KPOINTS",
+      "POTCARS": {
+        "C": "vasptest/C_POTCAR",
+        "H": "vasptest/H_POTCAR",
+        "O": "vasptest/O_POTCAR"
+      }
+    }
+  },
+  "analysis": {
+    "plot_filename_stress_length": "stress_vs_length.png",
+    "plot_filename_stress_strain": "stress_vs_strain.png",
+    "results_csv_filename": "results.csv"
+  }
+}

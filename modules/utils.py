@@ -9,6 +9,20 @@ from rdkit import Chem
 from rdkit.Chem import AllChem
 
 
+def nth_repl(s, sub, repl, n):
+    find = s.find(sub)
+    # If find is not -1 we have found at least one match for the substring
+    i = find != -1
+    # loop util we find the nth or we find no match
+    while find != -1 and i != n:
+        # find + 1 means we start searching from after the last match
+        find = s.find(sub, find + 1)
+        i += 1
+    # If i is equal to n we found nth match so replace
+    if i == n:
+        return s[:find] + repl + s[find+len(sub):]
+    return s
+    
 def setup_logging(log_file: str):
     """Настраивает логирование в файл и консоль."""
     logging.basicConfig(
@@ -58,7 +72,14 @@ def _generate_linear_oligomer(polymer_smiles: str, n: int, r_max=5) -> Optional[
     
     # Собираем SMILES для линейной цепочки
     monomer_body = polymer_smiles.replace('[*]', '')
-    chain_smiles = monomer_body*n
+    #chain_smiles = monomer_body*n
+    chain_smiles = polymer_smiles
+    monomer_appended_smiles = '(' + nth_repl(polymer_smiles, '[*]', '', 1) + ')'
+    for i in range(n-1):
+        chain_smiles = nth_repl(chain_smiles, '[*]', monomer_appended_smiles, 2)
+        print(chain_smiles)
+        
+    chain_smiles = chain_smiles.replace('[*]', '')
     
     try:
         mol_chain = Chem.MolFromSmiles(chain_smiles)
@@ -98,6 +119,12 @@ def _generate_ring(polymer_smiles: str, n: int, r_max=5.0) -> Optional[Atoms]:
     monomer_tail = polymer_smiles.replace('[*]', '', 1)
     monomer_body = polymer_smiles.replace('[*]', '')
     chain_smiles = monomer_head + monomer_body*(n-2) + monomer_tail
+    
+    chain_smiles = polymer_smiles
+    monomer_appended_smiles = '(' + nth_repl(polymer_smiles, '[*]', '', 1) + ')'
+    for i in range(n-1):
+        chain_smiles = nth_repl(chain_smiles, '[*]', monomer_appended_smiles, 2)
+        print(chain_smiles)
 
     try:
         mol_chain = Chem.MolFromSmiles(chain_smiles)
@@ -155,6 +182,13 @@ def _generate_strained_linear_oligomer(polymer_smiles: str, n: int, strain: floa
     monomer_tail = polymer_smiles.replace('[*]', '', 1)
     monomer_body = polymer_smiles.replace('[*]', '')
     chain_smiles = monomer_head + monomer_body*(n-2) + monomer_tail
+    
+    chain_smiles = polymer_smiles
+    monomer_appended_smiles = '(' + nth_repl(polymer_smiles, '[*]', '', 1) + ')'
+    for i in range(n-1):
+        chain_smiles = nth_repl(chain_smiles, '[*]', monomer_appended_smiles, 2)
+        print(chain_smiles)
+        
     
     MIN_DISTANCE = 1.0
     MAX_TRIES = 100

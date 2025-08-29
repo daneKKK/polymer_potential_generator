@@ -140,6 +140,7 @@ def run_stress_strain_workflow(config: dict):
         thermo          10
         thermo_style    custom step temp pe etotal press pxx pyy pzz lx
         minimize        1.0e-8 1.0e-8 1000 10000
+        dump            1 all custom 10 dump_min.xyz id type x y z
         write_data      minimized.data
         """
         if minimizer:
@@ -162,7 +163,9 @@ def run_stress_strain_workflow(config: dict):
         md_tasks.append({
             "calc_dir": calc_dir,
             "initial_atoms": atoms,
-            "minimized_atoms_path": minimized_data_path
+            "minimized_atoms_path": minimized_data_path,
+            "atom_pos1": np.min((atoms.pos2, atoms.pos1), axis=0),
+            "atom_pos2": np.max((atoms.pos1, atoms.pos2), axis=0)
         })
 
     # --- ЭТАП 2: ЗАПУСК LAMMPS MD (ПАРАЛЛЕЛЬНО) ---
@@ -170,19 +173,32 @@ def run_stress_strain_workflow(config: dict):
     running_processes = []
     for task in tqdm(md_tasks, desc="Запуск LAMMPS MD"):
         calc_dir = task['calc_dir']
+        eps = 0.1
+        pos1 = task['atom_pos1'] - eps
+        pos2 = task['atom_pos2'] + eps
         
         md_in_script = f"""
         units           metal
         atom_style      atomic
-        read_data       minimized.data
+        read_data       start.data
         pair_style      mlip mlip.ini
         pair_coeff      * *
-        velocity        all create {lmp_cfg['temperature']} 4928459 mom yes rot yes dist gaussian
-        fix             1 all nvt temp {lmp_cfg['temperature']} {lmp_cfg['temperature']} 0.1
+        group           Hs type 2
+        region          toBeFixedBox block {pos1[0]} {pos2[0]} {pos1[1]} {pos2[1]} {pos1[2]} {pos2[2]}
+        group           toBeFixed region toBeFixedBox
+        group           allElse subtract all Hs toBeFixed
+        velocity        Hs create {lmp_cfg['temperature']} 4928459 mom yes rot yes dist gaussian
+        fix		Hsrelax Hs nvt temp {lmp_cfg['temperature']} {lmp_cfg['temperature']} 0.1
         timestep        {lmp_cfg['timestep']}
         thermo          100
         thermo_style    custom step temp pe etotal press pxx pyy pzz lx
-        dump            1 all custom 100 dump.xyz id type x y z
+        dump            1 all custom 10 dump.xyz id type x y z
+        #run             2000
+        velocity        allElse create {lmp_cfg['temperature']} 4928459 mom yes rot yes dist gaussian
+
+        fix             1 allElse nvt temp {lmp_cfg['temperature']} {lmp_cfg['temperature']} 0.1
+        run             2000
+        fix             2 toBeFixed nvt temp {lmp_cfg['temperature']} {lmp_cfg['temperature']} 0.1
         run             {lmp_cfg['md_steps']}
         """
         md_script_path = os.path.join(calc_dir, "md.in")

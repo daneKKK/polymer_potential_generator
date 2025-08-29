@@ -11,6 +11,86 @@ from .md_sampler import run_lammps_md_sampling
 from .ab_initio import run_vasp_calculations
 from .training import train_mtp
 
+BASIC_TEMPLATE = """
+# LAMMPS input script template for MTP active learning
+units           metal
+atom_style      atomic
+
+read_data       {INPUT_CFG} # Читаем одну конфигурацию
+pair_style      mlip mlip.ini
+pair_coeff      * *
+
+velocity        all create {TEMPERATURE} {SEED} mom yes rot yes dist gaussian
+fix             1 all nvt temp {TEMPERATURE} {TEMPERATURE} 0.1
+timestep        0.001
+
+thermo          100
+thermo_style    custom step temp pe etotal press
+dump            1 all custom 100 dump.xyz id type x y z
+
+run             {STEPS}
+"""
+
+FIXED_ATOMS_TEMPLATE = """
+        units           metal
+        atom_style      atomic
+        read_data       {INPUT_CFG}
+        pair_style      mlip mlip.ini
+        pair_coeff      * *
+
+        region          toBeFixedBox block {pos1_x} {pos2_x} {pos1_y} {pos2_y}{pos1_z} {pos2_z}
+        group           toBeFixed region toBeFixedBox
+        group           allElse subtract all toBeFixed
+        
+        velocity        allElse create {TEMPERATURE} {SEED} mom yes rot yes dist gaussian
+        
+        fix             1 allElse nvt temp {TEMPERATURE} {TEMPERATURE} 0.1
+        
+        timestep        0.001
+        thermo          100
+        thermo_style    custom step temp pe etotal press pxx pyy pzz lx
+        dump            1 all custom 100 dump.xyz id type x y z
+
+        run             1000
+        
+        unfix           1
+        fix             2 all nvt temp {TEMPERATURE} {TEMPERATURE} 0.1
+        fix		mom all momentum 2000 linear 1 1 1
+   
+        
+        run             {STEPS}
+        
+        # Шаг 3: Сохранение .data файла с последнего шага
+        write_data      final_step.data
+     
+"""
+
+def _format_in_script(md_sampler_config, atoms, data_path, seed):
+    lmp_cfg = md_sampler_config
+    if 'pos1_x' in atoms.info.keys():
+        in_script = FIXED_ATOMS_TEMPLATE.format(
+            TEMPERATURE=md_cfg['temperature'],
+            STEPS=md_cfg['steps'],
+            INPUT_CFG=os.path.abspath(data_path),
+            SEED=seed  # Новое поле для рандомизации
+            pos1_x = atoms.info['pos1_x'],
+            pos2_x = atoms.info['pos2_x'],
+            pos1_y = atoms.info['pos1_y'],
+            pos2_y = atoms.info['pos2_y'],
+            pos1_z = atoms.info['pos1_z'],
+            pos2_z = atoms.info['pos2_z'],
+        )
+    else:
+        in_script = FIXED_ATOMS_TEMPLATE.format(
+            TEMPERATURE=md_cfg['temperature'],
+            STEPS=md_cfg['steps'],
+            INPUT_CFG=os.path.abspath(data_path),
+            SEED=seed  # Новое поле для рандомизации
+        )
+
+        
+
+
 def run_active_learning_loop(
     config: Dict,
     initial_train_path: str,
@@ -99,6 +179,7 @@ def run_active_learning_loop(
         # 3. Подготовка и запуск MD для всех запланированных задач
         input_data_paths = []
         output_dirs = []
+        #in_scripts = []
         
         for cfg_to_run, run_idx in runs_to_start:
             run_name = cfg_to_run.features.get('name', 'unknown').replace('/', '_')
@@ -112,6 +193,8 @@ def run_active_learning_loop(
             
             input_data_paths.append(single_data_path)
             output_dirs.append(run_dir)
+            #in_script = _format_in_script(md_sampler_config, ase_data, single_data_path, 42 + run_idx)
+            #in_scripts.append(in_script)
 
         preselected_paths = run_lammps_md_sampling(
             config, current_potential_path, state_als_path, input_data_paths, output_dirs

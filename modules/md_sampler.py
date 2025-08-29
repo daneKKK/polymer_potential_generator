@@ -12,6 +12,7 @@ def run_lammps_md_sampling(
     state_als_path: str,
     input_data_paths: List[str],
     output_dirs: List[str],
+    in_scripts: List[str] = None,
 ) -> List[str]:
     """
     Запускает LAMMPS MD с MTP параллельно для набора конфигураций.
@@ -22,6 +23,7 @@ def run_lammps_md_sampling(
         state_als_path: Путь к файлу состояния .als.
         input_data_paths: Список путей к входным данным LAMMPS (.data).
         output_dirs: Список путей к директориям вывода для каждого запуска.
+        in_scripts:: Список скриптов LAMMPS для запуска
 
     Returns:
         Список путей к созданным 'preselected.cfg', где найдены экстраполяционные конфигурации.
@@ -55,12 +57,16 @@ def run_lammps_md_sampling(
 
         # 2. Подготовить LAMMPS скрипт из шаблона с уникальным SEED
         seed = initial_seed + i
-        script_content = template.format(
-            TEMPERATURE=md_cfg['temperature'],
-            STEPS=md_cfg['steps'],
-            INPUT_CFG=os.path.abspath(input_path),
-            SEED=seed  # Новое поле для рандомизации
-        )
+                if in_scripts is None:
+            script_content = template.format(
+                TEMPERATURE=md_cfg['temperature'],
+                STEPS=md_cfg['steps'],
+                INPUT_CFG=os.path.abspath(input_path),
+                SEED=seed  # Новое поле для рандомизации
+            )
+        else:
+            script_content = in_scripts[i]
+        #script_content = in_script
         script_path = "run_lammps.in"
         with open(os.path.join(output_dir, script_path), 'w') as f:
             f.write(script_content)

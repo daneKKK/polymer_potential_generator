@@ -278,6 +278,12 @@ def _generate_strained_linear_oligomer(polymer_smiles: str, n: int, strain: floa
         strained_atoms.info['strain'] = strain
         strained_atoms.info['bond_length'] = bond_buffer
         
+        strained_atoms.pos2 = strained_atoms.positions[end_atom2_idx]
+        strained_atoms.pos1 = strained_atoms.positions[end_atom1_idx]
+        for i, a in enumerate(('x', 'y', 'z')):
+            strained_atoms.info[f'pos1_{a}'] = np.min((strained_atoms.positions[end_atom2_idx][i], strained_atoms.positions[end_atom1_idx][i])) - 0.01
+            strained_atoms.info[f'pos2_{a}'] = np.max((strained_atoms.positions[end_atom2_idx][i], strained_atoms.positions[end_atom1_idx][i])) + 0.01
+
         return strained_atoms
 
     except Exception as e:

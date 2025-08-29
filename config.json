@@ -1,0 +1,141 @@
+{
+  "general": {
+    "smiles_polymer": "[*]CC(c1ccccc1)[*]",
+    "output_dir": "./plstrn_0823",
+    "device": "cpu"
+  },
+  "fingerprinting": {
+    "datasets": [
+      {
+        "path": "./datasets/polymers.cfg",
+        "fingerprints_cache": "./datasets/polymers.npy",
+        "sampling_rate_N": 10
+      },
+      {
+        "path": "./datasets/polystyrene.cfg",
+        "fingerprints_cache": "./datasets/polystyrene.npy",
+        "sampling_rate_N": 1
+      },
+      {
+        "path": "./datasets/big_thing.cfg",
+        "fingerprints_cache": "./datasets/big_thing.npy",
+        "sampling_rate_N": 1
+      },
+      {
+        "path": "./datasets/CCO.cfg",
+        "fingerprints_cache": "./datasets/CCO.npy",
+        "sampling_rate_N": 1
+      },
+      {
+        "path": "./datasets/CCO_2.cfg",
+        "fingerprints_cache": "./datasets/CCO_2.npy",
+        "sampling_rate_N": 1
+      },
+      {
+        "path": "./datasets/CCO_3.cfg",
+        "fingerprints_cache": "./datasets/CCO_3.npy",
+        "sampling_rate_N": 1
+      },
+      {
+        "path": "./datasets/CCO_4.cfg",
+        "fingerprints_cache": "./datasets/CCO_4.npy",
+        "sampling_rate_N": 1
+      }
+    ],
+    "mace_model_path": "2023-12-03-mace-mp.model",
+    "type_map_cfg_to_symbol": { 
+      "0": "C", "1": "H", "2": "O"
+    }
+  },
+  "query_generation": {
+    "monomer": true,
+    "rings": [2, 4],
+    "linear": [2, 4],
+    "linear_strained": {
+     "linear_sizes": [6],
+     "strain_range": [0.0, 0.41, 0.1],
+     "bond_lengths": [1.53]
+    }
+  },
+  "selection": {
+    "num_output_configs": 2400,
+    "intra_config_clusters": 10,
+    "umap_params": {
+      "n_neighbors": 40,
+      "min_dist": 0.1,
+      "n_components": 64
+    },
+    "clustering_params": {
+      "distance_threshold": 20.0,
+      "n_clusters": null
+    }
+  },
+  "mtp_training": {
+    "enabled": true,
+    "run_params": "srun -N 3 -n 72",
+    "mtp_executable_path": "/home/dalekseev/binaries/mlp2",
+    "initial_potential": "/home/dalekseev/generated/potentials/22_plstrn_strain.mtp",
+    "output_potential_name": "trained.mtp",
+    "training_command": "train",
+    "training_params": {
+      "energy-weight": 1.0,
+      "force-weight": 0.03,
+      "stress-weight": 0.01,
+      "max-iter": 400,
+      "bfgs-conv-tol": "1e-3",
+      "weighting": "vibrations",
+      "skip-preinit": false
+    }
+  },
+  "mtp_validation": {
+    "enabled": true,
+    "query_cfg_filename": "query_structures.cfg"
+  },
+  "postprocessing": {
+    "save_smiles_xyz": true,
+    "smiles_xyz_filename": "query_structures.xyz",
+    "save_relevant_xyz": true,
+    "relevant_xyz_filename": "relevant_dataset.xyz",
+    "generate_umap_plot": false,
+    "umap_plot_filename": "umap_visualization.png",
+	"umap_plot_params": {
+      "n_neighbors": 40,
+      "min_dist": 0.1
+    }
+  },
+  "active_learning": {
+    "enabled": true,
+    "n_iterations": 100,
+    "calculate_all_at_once": true,	
+    "ignored_queries": ["ring"],
+    "thresholds": {
+      "md_start": 2.5,
+      "md_break": 4.0
+    },
+
+    "md_sampler_config": {
+      "lammps_executable_path": "/home/dalekseev/binaries/lmp_mpi",
+      "run_params": "srun --exact -n 1",
+      "script_template_path": "lammps.in",
+      "steps": 10000,
+      "temperature": 300,
+      "max_parallel_processes": 12
+    },
+    
+    "ab_initio_config": {
+      "suite": "vasp",
+      "executable_path": "vasp_std",
+      "run_params": "srun -N 3 -n 72",
+      "input_files": {
+        "INCAR": "vasptest/INCAR",
+        "INCAR_MD": "vasptest/INCAR_MD",
+        "KPOINTS": "vasptest/KPOINTS",
+        "POTCARS": {
+        	"C": "vasptest/C_POTCAR",
+        	"H": "vasptest/H_POTCAR",
+        	"O": "vasptest/O_POTCAR"
+        }
+      }
+    }
+  }
+}

@@ -6,6 +6,7 @@ import ase.io
 import numpy as np
 from collections import defaultdict
 from tqdm import tqdm
+import shutil
 
 from modules.configuration import Configuration
 from modules.utils import setup_logging, smiles_to_ase_atoms
@@ -163,6 +164,7 @@ def main(config_path: str):
         logging.info("Обучение MTP пропущено (отключено в конфигурации).")
         # Если обучение пропущено, для расчета грейдов будем использовать initial_potential
         trained_potential_path = config['mtp_training']['initial_potential']
+        shutil.copy(trained_potential_path, os.path.join(output_dir, 'trained.mtp'))
         
     if grade_cfg.get('enabled', False) and trained_potential_path:
         calculate_grades(config, trained_potential_path, train_dataset_path_cfg, query_cfg_path, os.path.join(output_dir, "state.als"))

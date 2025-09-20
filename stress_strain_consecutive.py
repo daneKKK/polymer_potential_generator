@@ -110,7 +110,7 @@ def run_stress_strain_workflow_consecutive(config: dict):
     """
     output_dir = config['general']['output_dir']
     lmp_cfg = config['lammps_config']
-    vasp_cfg = config.get('ab_initio_config', {})
+    vasp_cfg = config['ab_initio_config']
 
     # --- 1. Генерация одной полимерной структуры с нулевым стрейном и массива стрейнов ---
     logging.info("1. Генерация начальной структуры (нулевая деформация) и массива деформаций...")
@@ -230,14 +230,16 @@ def run_stress_strain_workflow_consecutive(config: dict):
 
         # --- Шаг 4: Конвертация .data в POSCAR и запуск VASP ---
         vasp_stress_gpa = np.nan
-        if vasp_cfg.get('enabled', False):
+        if strain >= vasp_cfg.get('enabled_from', 100000.0):
+            vasp_cfg['enabled'] == True
+        if (vasp_cfg.get('enabled', False)):
             logging.info(f"Запуск МД симуляции в VASP для деформации {strain:.4f}...")
             vasp_dir = os.path.join(calc_dir, "vasp_md")
             os.makedirs(vasp_dir, exist_ok=True)
             
             try:
                 # Читаем результат LAMMPS
-                final_atoms_from_lammps = ase.io.read(lammps_output_data_path, format='lammps-data')
+                final_atoms_from_lammps = ase.io.read(lammps_input_data, format='lammps-data')
                 
                 # Подготовка входных файлов VASP
                 ase.io.write(os.path.join(vasp_dir, "POSCAR"), final_atoms_from_lammps, format='vasp', sort=True)

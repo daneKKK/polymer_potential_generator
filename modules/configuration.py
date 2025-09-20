@@ -227,6 +227,21 @@ class Configuration:
             calculator = SinglePointCalculator(atoms, **results)
             atoms.set_calculator(calculator)
             
+        # Переносим все сохраненные features обратно в info,
+        # чтобы эта информация была доступна на следующих этапах.
+        try:
+            # Преобразуем числовые строки обратно в числа, где это возможно
+            restored_info = {}
+            for key, value in self.features.items():
+                try:
+                    # Попытка конвертировать в float, если не получается - оставляем строкой
+                    restored_info[key] = float(value)
+                except (ValueError, TypeError):
+                    restored_info[key] = value
+            atoms.info = restored_info
+        except Exception as e:
+            logging.warning(f"Не удалось полностью восстановить features в atoms.info: {e}")
+
         return atoms
         
     @staticmethod

@@ -12,11 +12,11 @@ from .ab_initio import run_vasp_calculations
 from .training import train_mtp
 
 BASIC_TEMPLATE = """
-# LAMMPS input script template for MTP active learning
+# LAMMPS input script for standard relaxation (monomer, ring, linear)
 units           metal
 atom_style      atomic
 
-read_data       {INPUT_CFG} # Читаем одну конфигурацию
+read_data       {INPUT_CFG}
 pair_style      mlip mlip.ini
 pair_coeff      * *
 
@@ -32,39 +32,40 @@ run             {STEPS}
 """
 
 FIXED_ATOMS_TEMPLATE = """
-        units           metal
-        atom_style      atomic
-        read_data       {INPUT_CFG}
-        pair_style      mlip mlip.ini
-        pair_coeff      * *
+# LAMMPS input script for strained chains with fixed regions
+units           metal
+atom_style      atomic
+read_data       {INPUT_CFG}
+pair_style      mlip mlip.ini
+pair_coeff      * *
 
-        region          toBeFixedBox block {pos1_x} {pos2_x} {pos1_y} {pos2_y}{pos1_z} {pos2_z}
-        group           toBeFixed region toBeFixedBox
-        group           allElse subtract all toBeFixed
-        
-        velocity        allElse create {TEMPERATURE} {SEED} mom yes rot yes dist gaussian
-        
-        fix             1 allElse nvt temp {TEMPERATURE} {TEMPERATURE} 0.1
-        
-        timestep        0.001
-        thermo          100
-        thermo_style    custom step temp pe etotal press pxx pyy pzz lx
-        dump            1 all custom 100 dump.xyz id type x y z
+# Определяем регион с атомами, которые НЕ будут двигаться (концы цепи)
+region          toBeFixedBox block {pos1_x} {pos2_x} {pos1_y} {pos2_y} {pos1_z} {pos2_z}
+group           toBeFixed region toBeFixedBox
+group           allElse subtract all toBeFixed
 
-        run             1000
-        
-        unfix           1
-        fix             2 all nvt temp {TEMPERATURE} {TEMPERATURE} 0.1
-        fix		mom all momentum 2000 linear 1 1 1
-   
-        
-        run             {STEPS}
-        
-        # Шаг 3: Сохранение .data файла с последнего шага
-        write_data      final_step.data
-     
+# Придаем начальную скорость только подвижным атомам
+velocity        allElse create {TEMPERATURE} {SEED} mom yes rot yes dist gaussian
+
+# Первый этап: релаксация подвижной части при замороженных концах
+fix             1 allElse nvt temp {TEMPERATURE} {TEMPERATURE} 0.1
+timestep        0.001
+thermo          100
+thermo_style    custom step temp pe etotal press pxx pyy pzz lx
+dump            1 all custom 100 dump.xyz id type x y z
+
+run             1000
+
+# Второй этап: релаксация всей системы
+unfix           1
+fix             2 all nvt temp {TEMPERATURE} {TEMPERATURE} 0.1
+fix             mom all momentum 2000 linear 1 1 1
+
+run             {STEPS}
+
+# Сохраняем финальную структуру
+write_data      final_step.data
 """
-
 def _format_in_script(md_sampler_config, atoms, data_path, seed):
     lmp_cfg = md_sampler_config
     if 'pos1_x' in atoms.info.keys():
@@ -72,7 +73,7 @@ def _format_in_script(md_sampler_config, atoms, data_path, seed):
             TEMPERATURE=md_cfg['temperature'],
             STEPS=md_cfg['steps'],
             INPUT_CFG=os.path.abspath(data_path),
-            SEED=seed  # Новое поле для рандомизации
+            SEED=seed,  # Новое поле для рандомизации
             pos1_x = atoms.info['pos1_x'],
             pos2_x = atoms.info['pos2_x'],
             pos1_y = atoms.info['pos1_y'],
@@ -179,25 +180,61 @@ def run_active_learning_loop(
         # 3. Подготовка и запуск MD для всех запланированных задач
         input_data_paths = []
         output_dirs = []
-        #in_scripts = []
+        in_scripts = [] # <--- Создаем список для хранения сгенерированных скриптов
         
         for cfg_to_run, run_idx in runs_to_start:
             run_name = cfg_to_run.features.get('name', 'unknown').replace('/', '_')
-            # Создаем уникальную директорию для каждого запуска
             run_dir = os.path.join(iter_dir, f"{run_name}_run{run_idx}")
             os.makedirs(run_dir, exist_ok=True)
             
+            # Конвертируем в ASE. Теперь ase_data.info будет содержать все нужные нам данные!
             ase_data = cfg_to_run.to_ase(type_map)
             single_data_path = os.path.join(run_dir, "start.data")
             ase.io.write(single_data_path, ase_data, format='lammps-data', masses=True)
             
             input_data_paths.append(single_data_path)
             output_dirs.append(run_dir)
-            #in_script = _format_in_script(md_sampler_config, ase_data, single_data_path, 42 + run_idx)
-            #in_scripts.append(in_script)
+            
+            # === НОВАЯ ЛОГИКА ВЫБОРА И ФОРМАТИРОВАНИЯ ШАБЛОНА ===
+            script_content = ""
+            generation_type = ase_data.info.get('generation_type', 'unknown')
+            seed = 4928459 + run_idx # Уникальный seed для каждого запуска
 
+            if generation_type == 'linear_strained':
+                logging.info(f"  -> Генерация LAMMPS скрипта для растянутой цепи: {run_name}")
+                # Проверяем наличие всех ключей для безопасности
+                required_keys = ['pos1_x', 'pos2_x', 'pos1_y', 'pos2_y', 'pos1_z', 'pos2_z']
+                if all(key in ase_data.info for key in required_keys):
+                    script_content = FIXED_ATOMS_TEMPLATE.format(
+                        TEMPERATURE=md_sampler_config['temperature'],
+                        STEPS=md_sampler_config['steps'],
+                        INPUT_CFG=os.path.abspath(single_data_path),
+                        SEED=seed,
+                        pos1_x=ase_data.info['pos1_x'], pos2_x=ase_data.info['pos2_x'],
+                        pos1_y=ase_data.info['pos1_y'], pos2_y=ase_data.info['pos2_y'],
+                        pos1_z=ase_data.info['pos1_z'], pos2_z=ase_data.info['pos2_z'],
+                    )
+                else:
+                    logging.error(f"Для структуры {run_name} типа 'linear_strained' отсутствуют координаты для фиксации! Используется базовый шаблон.")
+                    # Откатываемся к базовому шаблону в случае ошибки
+                    generation_type = 'fallback'
+
+            if generation_type != 'linear_strained': # Включая мономер, кольца, линейные и fallback
+                 logging.info(f"  -> Генерация стандартного LAMMPS скрипта для: {run_name}")
+                 script_content = BASIC_TEMPLATE.format(
+                    TEMPERATURE=md_sampler_config['temperature'],
+                    STEPS=md_sampler_config['steps'],
+                    INPUT_CFG=os.path.abspath(single_data_path),
+                    SEED=seed
+                 )
+            
+            in_scripts.append(script_content)
+            # =======================================================
+
+        # Передаем сгенерированные скрипты в md_sampler
         preselected_paths = run_lammps_md_sampling(
-            config, current_potential_path, state_als_path, input_data_paths, output_dirs
+            config, current_potential_path, state_als_path, input_data_paths, output_dirs,
+            in_scripts=in_scripts  # <--- Передаем новый аргумент
         )
         
         new_ab_initio_configs = []

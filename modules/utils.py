@@ -7,7 +7,52 @@ from ase.build.rotate import rotation_matrix_from_points
 #from ase.geometry import get_rotation_matrix
 from rdkit import Chem
 from rdkit.Chem import AllChem
+from collections import defaultdict
 
+def remove_atoms_with_neighbors_info(rw_mol, atom_indices):
+    """
+    Эффективное удаление атомов с возвратом информации о соседях
+    с корректными индексами после удаления
+    """
+    if not atom_indices:
+        return {}
+    
+    to_remove = set(atom_indices)
+    original_num_atoms = rw_mol.GetNumAtoms()
+    
+    # Собираем информацию о соседях перед удалением
+    neighbors_info = {}
+    for atom_idx in to_remove:
+        if atom_idx < original_num_atoms:
+            atom = rw_mol.GetAtomWithIdx(atom_idx)
+            neighbors_info[atom_idx] = [neighbor.GetIdx() for neighbor in atom.GetNeighbors()]
+    
+    # Создаем карту для преобразования индексов
+    # Каждый индекс уменьшается на количество удаленных атомов перед ним
+    removal_count_before = [0] * original_num_atoms
+    count = 0
+    for i in range(original_num_atoms):
+        removal_count_before[i] = count
+        if i in to_remove:
+            count += 1
+    
+    # Удаляем атомы в обратном порядке
+    for atom_idx in sorted(to_remove, reverse=True):
+        if atom_idx < rw_mol.GetNumAtoms():
+            rw_mol.RemoveAtom(atom_idx)
+    
+    # Корректируем индексы соседей
+    corrected_info = {}
+    for original_idx, neighbors in neighbors_info.items():
+        corrected_neighbors = []
+        for neighbor_idx in neighbors:
+            if neighbor_idx not in to_remove:
+                # Корректируем индекс: original - количество удаленных перед ним
+                corrected_idx = neighbor_idx - removal_count_before[neighbor_idx]
+                corrected_neighbors.append(corrected_idx)
+        corrected_info[original_idx] = corrected_neighbors
+    
+    return corrected_info
 
 def nth_repl(s, sub, repl, n):
     find = s.find(sub)
@@ -22,6 +67,27 @@ def nth_repl(s, sub, repl, n):
     if i == n:
         return s[:find] + repl + s[find+len(sub):]
     return s
+
+def remove_hydrogens_from_atom(rw_mol, atom_index):
+    """
+    Удаляет все водороды, соединённые с атомом по указанному индексу
+    
+    Args:
+        rw_mol: Chem.RWMol объект
+        atom_index: индекс атома, от которого нужно удалить водороды
+    """
+    # Получаем атом по индексу
+    atom = rw_mol.GetAtomWithIdx(atom_index)
+    
+    # Находим всех соседей, которые являются водородами
+    hydrogens_to_remove = []
+    for neighbor in atom.GetNeighbors():
+        if neighbor.GetAtomicNum() == 1:  # AtomicNum = 1 для водорода
+            hydrogens_to_remove.append(neighbor.GetIdx())
+    
+    # Удаляем водороды (в обратном порядке, чтобы индексы не сдвигались)
+    for h_idx in sorted(hydrogens_to_remove, reverse=True):
+        rw_mol.RemoveAtom(h_idx)
     
 def setup_logging(log_file: str):
     """Настраивает логирование в файл и консоль."""
@@ -77,7 +143,6 @@ def _generate_linear_oligomer(polymer_smiles: str, n: int, r_max=5) -> Optional[
     monomer_appended_smiles = '(' + nth_repl(polymer_smiles, '[*]', '', 1) + ')'
     for i in range(n-1):
         chain_smiles = nth_repl(chain_smiles, '[*]', monomer_appended_smiles, 2)
-        print(chain_smiles)
         
     chain_smiles = chain_smiles.replace('[*]', '')
     
@@ -124,7 +189,6 @@ def _generate_ring(polymer_smiles: str, n: int, r_max=5.0) -> Optional[Atoms]:
     monomer_appended_smiles = '(' + nth_repl(polymer_smiles, '[*]', '', 1) + ')'
     for i in range(n-1):
         chain_smiles = nth_repl(chain_smiles, '[*]', monomer_appended_smiles, 2)
-        print(chain_smiles)
 
     try:
         mol_chain = Chem.MolFromSmiles(chain_smiles)
@@ -138,6 +202,8 @@ def _generate_ring(polymer_smiles: str, n: int, r_max=5.0) -> Optional[Atoms]:
         rw_mol.AddBond(neighbor1, neighbor2, Chem.BondType.SINGLE)
         rw_mol.RemoveAtom(max(idx1, idx2))
         rw_mol.RemoveAtom(min(idx1, idx2))
+        
+        
         
         mol_ring = rw_mol.GetMol()
         Chem.SanitizeMol(mol_ring)
@@ -187,7 +253,6 @@ def _generate_strained_linear_oligomer(polymer_smiles: str, n: int, strain: floa
     monomer_appended_smiles = '(' + nth_repl(polymer_smiles, '[*]', '', 1) + ')'
     for i in range(n-1):
         chain_smiles = nth_repl(chain_smiles, '[*]', monomer_appended_smiles, 2)
-        print(chain_smiles)
         
     
     MIN_DISTANCE = 1.0
@@ -204,7 +269,7 @@ def _generate_strained_linear_oligomer(polymer_smiles: str, n: int, strain: floa
         idx1, idx2 = wildcard_polymers[0].GetIdx(), wildcard_polymers[1].GetIdx()
         #rw_mol = Chem.RWMol(mol)
         for wildcard in wildcard_polymers:
-            wildcard.SetAtomicNum(1)
+            wildcard.SetAtomicNum(6)
         mol.UpdatePropertyCache(strict=False)
         Chem.SanitizeMol(mol)
         mol = Chem.AddHs(mol)
@@ -217,9 +282,16 @@ def _generate_strained_linear_oligomer(polymer_smiles: str, n: int, strain: floa
         
         AllChem.MMFFOptimizeMolecule(mol)
         rw_mol = Chem.RWMol(mol)
+
+        remove_hydrogens_from_atom(rw_mol, max(idx1, idx2))
+        remove_hydrogens_from_atom(rw_mol, min(idx1, idx2))
         
-        rw_mol.RemoveAtom(max(idx1, idx2))
-        rw_mol.RemoveAtom(min(idx1, idx2))
+        neighs = remove_atoms_with_neighbors_info(rw_mol, sorted([idx1, idx2]))
+        end_atom1_idx = neighs[min(idx1, idx2)][0]
+        end_atom2_idx = neighs[max(idx1, idx2)][0]
+        
+        #rw_mol.RemoveAtom(max(idx1, idx2))
+        #rw_mol.RemoveAtom(min(idx1, idx2))
         mol = rw_mol
         
         
@@ -247,8 +319,8 @@ def _generate_strained_linear_oligomer(polymer_smiles: str, n: int, strain: floa
         last_monomer_map = [match for match in matches if match[0] < match[1]][-1] #такая сложная штука, чтобы удостовериться, что мы получили действительно последний мономер
         
         # Примечание: предполагается, что первый [*] в SMILES - начало, второй - конец
-        end_atom1_idx = first_monomer_map[attachment_indices_in_template[0]-1]
-        end_atom2_idx = last_monomer_map[attachment_indices_in_template[1]-1]
+        #end_atom1_idx = first_monomer_map[attachment_indices_in_template[0]-1]
+        #end_atom2_idx = last_monomer_map[attachment_indices_in_template[1]-1]
 
         # 3. Создание объекта Atoms и ориентация вдоль оси X
         positions = mol.GetConformer().GetPositions()

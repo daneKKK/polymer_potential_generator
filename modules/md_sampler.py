@@ -37,12 +37,8 @@ def run_lammps_md_sampling(
     processes = []
     successful_preselected_paths = []
     
-    # Загружаем шаблон LAMMPS скрипта один раз
-    with open(md_cfg['script_template_path'], 'r') as f:
-        template = f.read()
 
-    for i, (input_path, output_dir) in enumerate(zip(input_data_paths, output_dirs)):
-        
+    for i, (input_path, output_dir, script_content) in enumerate(zip(input_data_paths, output_dirs, in_scripts)):        
         # 1. Создать mlip.ini в соответствующей директории
         mlip_ini_path = os.path.join(output_dir, "mlip.ini")
         with open(mlip_ini_path, 'w') as f:
@@ -55,22 +51,14 @@ def run_lammps_md_sampling(
             f.write(f"select:save-selected preselected.cfg\n")
         logging.info(f"Создан файл настроек mlip.ini: {mlip_ini_path}")
 
-        # 2. Подготовить LAMMPS скрипт из шаблона с уникальным SEED
-        seed = initial_seed + i
-                if in_scripts is None:
-            script_content = template.format(
-                TEMPERATURE=md_cfg['temperature'],
-                STEPS=md_cfg['steps'],
-                INPUT_CFG=os.path.abspath(input_path),
-                SEED=seed  # Новое поле для рандомизации
-            )
-        else:
-            script_content = in_scripts[i]
-        #script_content = in_script
+        # 2. Подготовить LAMMPS скрипт (теперь просто записать готовый)
+        if not script_content:
+             logging.error(f"Для запуска в {output_dir} был передан пустой LAMMPS скрипт! Пропуск.")
+             continue
+
         script_path = "run_lammps.in"
         with open(os.path.join(output_dir, script_path), 'w') as f:
             f.write(script_content)
-
         # 3. Подготовить и запустить команду LAMMPS
         command = f"{md_cfg.get('run_params','')} {md_cfg['lammps_executable_path']} -in {script_path}"
         logging.info(f"Подготовка к запуску LAMMPS MD в {output_dir}: {command}")

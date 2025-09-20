@@ -93,6 +93,9 @@ def run_vasp_calculations(
             
             # Конвертируем обратно в Configuration, сохраняя исходные фичи
             cfgs_out = [Configuration.from_ase_atoms(result_atoms_indiv, type_map_reverse) for result_atoms_indiv in result_atoms]
+            for cfg in cfgs_out:
+                for key in cfg.plus_stress.keys():
+                    cfg.plus_stress[key] *= -1
             for key, value in cfg_in.features.items():
                 for cfg_out in cfgs_out:
                     if key not in cfg_out.features:
